@@ -34,6 +34,42 @@ def cmd_backtest(args) -> None:
     print(f"done in {time.perf_counter() - t0:.0f}s")
 
 
+def cmd_grid(args) -> None:
+    import json
+
+    from invopt.grid import run_grid
+
+    t0 = time.perf_counter()
+    res = run_grid(n_plan=args.n_plan, n_eval=args.n_eval, workers=args.workers,
+                   backtest_path=OUT / "backtest.json")
+    OUT.mkdir(exist_ok=True)
+    (OUT / "results.json").write_text(json.dumps(res, allow_nan=False, separators=(",", ":")))
+    bad = [(b, r, c["status"]) for b, row in res["cells"].items() for r, c in row.items() if c["status"] != "optimal"]
+    print(f"budgets (INR crore): {[round(b / 1e7, 1) for b in res['budgets_inr']]}  B* = {res['b_star_inr'] / 1e7:.1f} Cr")
+    for risk, f in res["frontier"].items():
+        print(f"  {risk:13s} mean (Cr): {[round(m / 1e7, 2) for m in f['mean']]}  "
+              f"worst-5% (Cr): {[round(c / 1e7, 2) for c in f['cvar95']]}")
+    print("non-optimal solves:", bad or "none")
+    print(f"results.json {(OUT / 'results.json').stat().st_size / 1e6:.2f} MB, done in {time.perf_counter() - t0:.0f}s")
+
+
+def cmd_page(args) -> None:
+    from invopt.page import build_page
+
+    src = OUT / "results.json"
+    if not src.exists():
+        raise SystemExit("Missing out/results.json: run `python -m invopt.cli grid` first")
+    a = build_page(src, OUT / "blockwise.html")
+    b = build_page(src, OUT / "blockwise_standalone.html", standalone=True)
+    print(f"wrote {a} ({a.stat().st_size / 1e6:.2f} MB, artifact content) and {b} (open in a browser)")
+
+
+def cmd_all(args) -> None:
+    cmd_backtest(args)
+    cmd_grid(args)
+    cmd_page(args)
+
+
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(prog="invopt")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -46,6 +82,16 @@ def main(argv=None) -> None:
                    help="a night counts as sold out when occupancy >= tau x estimated capacity")
     b.add_argument("--tag", default="", help="suffix for output files, e.g. _uncapped")
     b.set_defaults(func=cmd_backtest)
+    g = sub.add_parser("grid", help="plans for every budget x risk level on the synthetic portfolio")
+    g.add_argument("--n-plan", type=int, default=150)
+    g.add_argument("--n-eval", type=int, default=4000)
+    g.add_argument("--workers", type=int, default=2)
+    g.set_defaults(func=cmd_grid)
+    p = sub.add_parser("page", help="render out/blockwise*.html from out/results.json")
+    p.set_defaults(func=cmd_page)
+    a = sub.add_parser("all", help="backtest, grid, then page (headline settings)")
+    a.set_defaults(func=cmd_all, budget_share=None, soft_cap_mult="1.0", soldout_tau=0.98, tag="",
+                   n_plan=150, n_eval=4000, workers=2)
     args = ap.parse_args(argv)
     args.func(args)
 
