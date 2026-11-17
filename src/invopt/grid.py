@@ -37,10 +37,14 @@ def _init(cells: Cells) -> None:
     _PLAN = cells
 
 
+TIME_LIMIT_S = 900.0  # observed max ~200 s on a laptop; generous margin for slower machines
+
+
 def _solve(args) -> OptResult:
     budget, lam, soft_cap, group_region, terms = args
     return optimize(_PLAN, terms, OptimizerParams(risk_aversion=lam, budget=budget, soft_cap=soft_cap,
-                                                  group_region=group_region, region_share=REGION_SHARE))
+                                                  group_region=group_region, region_share=REGION_SHARE,
+                                                  time_limit_s=TIME_LIMIT_S))
 
 
 def _clean(obj):
@@ -140,7 +144,10 @@ def run_grid(budget_fracs=(0.25, 0.5, 0.75, 1.0, 1.25), risk_levels: dict[str, f
     group_region = meta["region"].map({r: i for i, r in enumerate(REGIONS)}).to_numpy()
     hard_cost = terms.costs(plan.ref_rate, plan.ref_rate)["hard"]
 
-    unconstrained = optimize(plan, terms, OptimizerParams(soft_cap=soft_cap))
+    unconstrained = optimize(plan, terms, OptimizerParams(soft_cap=soft_cap, time_limit_s=TIME_LIMIT_S))
+    if unconstrained.status != "optimal":
+        raise RuntimeError(f"reference (unconstrained Max profit) solve returned {unconstrained.status!r}; "
+                           "every budget is derived from it, so the grid stops")
     b_star = float(hard_cost @ unconstrained.plan_int.hard)
     budgets = sorted({max(0.5, round(f * b_star / CRORE * 2) / 2) * CRORE for f in budget_fracs})
 
@@ -156,7 +163,7 @@ def run_grid(budget_fracs=(0.25, 0.5, 0.75, 1.0, 1.25), risk_levels: dict[str, f
     shock_eval = {s: generate(WorldParams(shock=s), n_eval, EVAL_SEED, weeks=weeks) for s in SHOCKS}
 
     cells_out: dict = {}
-    frontier = {r: {"budgets": budgets, "mean": [], "cvar95": [], "fill_rate": []} for r in risk_levels}
+    frontier = {r: {"budgets": budgets, "mean": [], "cvar95": [], "fill_rate": [], "status": []} for r in risk_levels}
     it = iter(results)
     for bi, b in enumerate(budgets):
         cells_out[str(bi)] = {}
@@ -177,6 +184,16 @@ def run_grid(budget_fracs=(0.25, 0.5, 0.75, 1.0, 1.25), risk_levels: dict[str, f
             frontier[risk]["mean"].append(k["mean"])
             frontier[risk]["cvar95"].append(k["cvar95_profit"])
             frontier[risk]["fill_rate"].append(k["fill_rate"])
+            frontier[risk]["status"].append(res.status)
+
+    # what the next rupee of budget adds to EXPECTED profit, measured on fresh futures (frontier slope),
+    # not the LP dual (which prices the risk-weighted objective on the planning draws)
+    for risk in risk_levels:
+        means = frontier[risk]["mean"]
+        for bi in range(len(budgets)):
+            nxt = None if bi == len(budgets) - 1 else (means[bi + 1] - means[bi]) / (budgets[bi + 1] - budgets[bi]) * CRORE
+            cells_out[str(bi)][risk]["kpis"]["marginal_profit_per_cr"] = nxt
+    fallback_count = sum(1 for row in cells_out.values() for c in row.values() if c["status"] != "optimal")
 
     # robustness: the Balanced plan at the reference budget vs simple rules, in worlds it was not planned in
     ref_i = int(np.argmin([abs(b - b_star) for b in budgets]))
@@ -194,9 +211,13 @@ def run_grid(budget_fracs=(0.25, 0.5, 0.75, 1.0, 1.25), risk_levels: dict[str, f
                                     soft=np.zeros(plan.n_groups)),
         "expected_volume_hard": Plan(hard=_scale_hard(meta["mean_demand"].to_numpy(), hard_cost, ref_budget),
                                      soft=np.zeros(plan.n_groups)),
+        # two-contract rule (fixed before seeing results): allot expected volume, hard-block the 25th percentile
+        "allot_expected_block_p25": Plan(hard=_scale_hard(np.percentile(demand_plan, 25, axis=1), hard_cost, ref_budget),
+                                         soft=soft_cap.copy()),
         "dynamic_only": Plan.zeros(plan.n_groups),
     }
-    rob = {"budget_inr": ref_budget, "worlds": list(WORLDS), "results": {}}
+    rob = {"budget_inr": ref_budget, "worlds": list(WORLDS), "unseen_worlds": [w for w in WORLDS if w != "base"],
+           "status": bal.status, "results": {}}
     for wi, (name, params) in enumerate(WORLDS.items()):
         w_cells = generate(params, n_eval, WORLD_SEED + wi, weeks=weeks)
         rob["results"][name] = {pol: evaluate(w_cells, pl, terms).summary() for pol, pl in policies.items()}
@@ -207,7 +228,8 @@ def run_grid(budget_fracs=(0.25, 0.5, 0.75, 1.0, 1.25), risk_levels: dict[str, f
         backtest = {"summary": bt["summary"], "forecast_metrics": bt["forecast_metrics"],
                     "capacity": bt["meta"]["capacity"], "config": bt["meta"]["config"],
                     "n_batches": len(bt["meta"]["batches"])}
-        for extra in ("backtest_uncapped.json", "backtest_tau1.json", "backtest_budget0.5.json"):
+        for extra in ("backtest_uncapped.json", "backtest_tau1.json", "backtest_budget0.5.json",
+                      "backtest_rates_low.json", "backtest_rates_high.json"):
             p = Path(backtest_path).parent / extra
             if p.exists():
                 backtest.setdefault("sensitivity", {})[extra.removeprefix("backtest_").removesuffix(".json")] = \
@@ -219,6 +241,7 @@ def run_grid(budget_fracs=(0.25, 0.5, 0.75, 1.0, 1.25), risk_levels: dict[str, f
         "b_star_inr": b_star,
         "budgets_inr": budgets,
         "reference_budget_index": ref_i,
+        "fallback_count": fallback_count,
         "risk_levels": risk_levels,
         "cells": cells_out,
         "frontier": frontier,

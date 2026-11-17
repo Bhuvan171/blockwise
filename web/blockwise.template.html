@@ -214,7 +214,7 @@ const DATA = /*__RESULTS__*/null;
   let defaultB = DATA.reference_budget_index ?? 0;
   for (let i = DATA.budgets_inr.length - 1; i >= 0; i--) {
     const k = DATA.cells[String(i)][defaultRisk].kpis;
-    if ((k.budget_shadow_price || 0) > 1e-6) { defaultB = i; break; }
+    if (k.marginal_profit_per_cr != null && k.marginal_profit_per_cr > 0 && k.spend >= 0.98 * DATA.budgets_inr[i]) { defaultB = i; break; }
   }
   const state = { b: defaultB, risk: defaultRisk, shock: "none", sort: "exp_profit_inr", showAll: false };
   try { const saved = JSON.parse(localStorage.getItem("blockwise-state") || "{}"); Object.assign(state, saved, { showAll: false }); } catch (e) {}
@@ -261,19 +261,24 @@ const DATA = /*__RESULTS__*/null;
       const cls = (d >= 0) === higherIsGood ? "up" : "down";
       return `<span class="d ${Math.abs(d) < 1e-9 ? "" : cls}">${d >= 0 ? "+" : "−"}${fmt(Math.abs(d))} vs no shock</span>`;
     };
-    const shadow = base.budget_shadow_price || 0;
+    const m = base.marginal_profit_per_cr;
+    const binding = base.spend >= 0.98 * DATA.budgets_inr[state.b];
     const tiles = [
       ["Expected profit", cr(k.mean, 2), delta("mean", (x) => cr(x, 2))],
       ["Bad case (average of worst 5%)", cr(k.cvar95_profit, 2), delta("cvar95_profit", (x) => cr(x, 2))],
       ["Chance of a loss", pct(k.p_loss, 1), delta("p_loss", (x) => pct(x, 1), false)],
       ["Demand served", pct(k.fill_rate, 1), delta("fill_rate", (x) => pct(x, 1))],
       ["Prepaid spend", cr(base.spend, 1), `<span class="d">of ${cr(DATA.budgets_inr[state.b], 1)} budget</span>`],
-      ["Next ₹1 Cr of budget earns", shadow > 1e-6 ? cr(shadow * CR, 2) : "Not binding", `<span class="d">${shadow > 1e-6 ? "in expected profit" : "this plan does not use the full budget"}</span>`],
+      ["Next ₹1 Cr of budget adds", !binding ? "Not binding" : (m == null ? "–" : cr(m, 2)),
+        `<span class="d">${!binding ? "this plan does not use the full budget" : (m == null ? "largest budget shown" : "to expected profit, up to the next budget step (fresh futures)")}</span>`],
     ];
     $("kpis").innerHTML = tiles.map(([kk, v, d]) => `<div class="kpi"><span class="k">${kk}</span><span class="v">${v}</span>${d}</div>`).join("");
-    const st = $("status");
-    if (c.status !== "optimal") { st.hidden = false; st.textContent = `The optimiser did not finish for this setting (${c.status}); showing the buy-as-needed fallback.`; }
-    else st.hidden = true;
+    const st = $("status"), msgs = [];
+    const nPlans = DATA.budgets_inr.length * RISKS.length;
+    if (DATA.fallback_count > 0) msgs.push(`${DATA.fallback_count} of ${nPlans} plans fell back to buy-as-needed because the optimiser hit its time limit; they are marked as hollow points on the frontier.`);
+    if (c.status !== "optimal") msgs.push(`This setting is one of them (${c.status}): the numbers below are the buy-as-needed fallback.`);
+    st.hidden = msgs.length === 0;
+    st.textContent = msgs.join(" ");
   }
 
   // ---------- buy list ----------
@@ -335,7 +340,12 @@ const DATA = /*__RESULTS__*/null;
       const ys = DATA.frontier[r].mean.map((v) => v / CR);
       const pts = xs.map((x, j) => `${X(x)},${Y(ys[j])}`).join(" ");
       s += `<polyline points="${pts}" fill="none" style="stroke:${SERIES[i]}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
-      xs.forEach((x, j) => { s += `<circle cx="${X(x)}" cy="${Y(ys[j])}" r="4" style="fill:${SERIES[i]};stroke:var(--surface)" stroke-width="2"/>`; });
+      const sts = DATA.frontier[r].status || [];
+      xs.forEach((x, j) => {
+        s += sts[j] && sts[j] !== "optimal"
+          ? `<circle class="fallback" cx="${X(x)}" cy="${Y(ys[j])}" r="4" style="fill:var(--surface);stroke:${SERIES[i]}" stroke-width="2"><title>fallback plan (${esc(sts[j])})</title></circle>`
+          : `<circle cx="${X(x)}" cy="${Y(ys[j])}" r="4" style="fill:${SERIES[i]};stroke:var(--surface)" stroke-width="2"/>`;
+      });
       labels.push({ y: Y(ys[ys.length - 1]), text: r, i });
     });
     labels.sort((a, b) => a.y - b.y);
@@ -442,26 +452,28 @@ const DATA = /*__RESULTS__*/null;
 
   // ---------- real-data backtest ----------
   const POLICY = { dynamic_only: "Buy as needed only", last_year_hard: "Block last year's volume", point_forecast_hard: "Block the median forecast",
+    allot_ly_block_p25: "Allot last year's volume + block the 25th-percentile forecast",
     "ours_0": "Blockwise · Max profit", "ours_0.25": "Blockwise · Balanced", "ours_1": "Blockwise · Careful", hindsight: "Perfect hindsight (upper bound)" };
   function renderBacktest() {
     const bt = DATA.backtest;
     if (!bt) { $("bt-panel").hidden = true; return; }
     const S = Object.fromEntries(bt.summary.map((r) => [r.policy, r]));
-    const ours = S["ours_0.25"] || S["ours_0"], pf = S.point_forecast_hard, ly = S.last_year_hard;
+    const ours = S["ours_0.25"] || S["ours_0"], pf = S.point_forecast_hard, ly = S.last_year_hard, two = S.allot_ly_block_p25;
     const years = `${bt.config.start.slice(0, 7)} to ${bt.config.end.slice(0, 7)}`;
-    $("bt-headline").innerHTML = `Over <strong>${bt.n_batches} four-week planning rounds</strong> of real B2B bookings at two hotels (${years}), the Balanced plan earned <strong>${eur(ours.total_profit)}</strong>, <strong>${ours.pct_of_hindsight.toFixed(1)}%</strong> of what perfect hindsight could have earned. Blocking the median forecast reached ${pf.pct_of_hindsight.toFixed(1)}%; blocking last year's volume ${ly.pct_of_hindsight.toFixed(1)}%. ${ours.batches_with_loss === 0 ? "No planning round lost money." : ours.batches_with_loss + " rounds lost money."}`;
-    const order = ["dynamic_only", "last_year_hard", "point_forecast_hard", "ours_0", "ours_0.25", "ours_1", "hindsight"].filter((p) => S[p]);
-    $("bt-table").innerHTML = `<thead><tr><th>Policy</th><th class="n">Profit</th><th class="n">% of hindsight</th><th class="n">Demand served</th><th class="n">Unsold block cost</th><th class="n">Worst round</th><th class="n">Rounds with a loss</th></tr></thead><tbody>` +
-      order.map((p) => { const r = S[p]; return `<tr class="${p === "ours_0.25" ? "mine" : ""}"><td>${esc(POLICY[p] || p)}</td><td class="n">${eur(r.total_profit)}</td><td class="n">${r.pct_of_hindsight.toFixed(1)}%</td><td class="n">${pct(r.fill_rate, 1)}</td><td class="n">${eur(r.unsold_hard_cost)}</td><td class="n">${eur(r.worst_batch)}</td><td class="n">${r.batches_with_loss}</td></tr>`; }).join("") + "</tbody>";
+    $("bt-headline").innerHTML = `Over <strong>${bt.n_batches} four-week planning rounds</strong> of real B2B bookings at two hotels (${years}), the Balanced plan earned <strong>${eur(ours.total_profit)}</strong>, <strong>${ours.pct_of_hindsight.toFixed(1)}%</strong> of what perfect hindsight could have earned${ours.pct_ci_lo != null ? ` (90% range ${ours.pct_ci_lo.toFixed(1)}–${ours.pct_ci_hi.toFixed(1)}% from resampling rounds)` : ""}. ${two ? `A sensible two-contract rule (allot last year's volume, block the 25th-percentile forecast) reached ${two.pct_of_hindsight.toFixed(1)}%; ` : ""}blocking the median forecast ${pf.pct_of_hindsight.toFixed(1)}%; blocking last year's volume ${ly.pct_of_hindsight.toFixed(1)}%. ${ours.batches_with_loss === 0 ? "No planning round lost money." : ours.batches_with_loss + " rounds lost money."}`;
+    const order = ["dynamic_only", "last_year_hard", "point_forecast_hard", "allot_ly_block_p25", "ours_0", "ours_0.25", "ours_1", "hindsight"].filter((p) => S[p]);
+    $("bt-table").innerHTML = `<thead><tr><th>Policy</th><th class="n">Profit</th><th class="n">% of hindsight</th><th class="n">90% range</th><th class="n">Demand served</th><th class="n">Unsold block cost</th><th class="n">Worst round</th><th class="n">Rounds with a loss</th></tr></thead><tbody>` +
+      order.map((p) => { const r = S[p]; return `<tr class="${p === "ours_0.25" ? "mine" : ""}"><td>${esc(POLICY[p] || p)}</td><td class="n">${eur(r.total_profit)}</td><td class="n">${r.pct_of_hindsight.toFixed(1)}%</td><td class="n">${r.pct_ci_lo != null ? r.pct_ci_lo.toFixed(0) + "–" + r.pct_ci_hi.toFixed(0) + "%" : "–"}</td><td class="n">${pct(r.fill_rate, 1)}</td><td class="n">${eur(r.unsold_hard_cost)}</td><td class="n">${eur(r.worst_batch)}</td><td class="n">${r.batches_with_loss}</td></tr>`; }).join("") + "</tbody>";
     // bar chart: % of hindsight
     const el = $("bt-chart"), bars = order.filter((p) => p !== "hindsight");
-    const W = 520, rowH = 28, lw = 180, H = bars.length * rowH + 30;
+    const W = 560, rowH = 28, lw = 230, H = bars.length * rowH + 30;
     const X = (v) => lw + Math.max(0, v) / 100 * (W - lw - 50);
     let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
     [0, 25, 50, 75, 100].forEach((t) => { s += `<line x1="${X(t)}" x2="${X(t)}" y1="0" y2="${H - 22}" style="stroke:var(--grid)"/><text x="${X(t)}" y="${H - 6}" text-anchor="middle" font-size="11" style="fill:var(--muted)">${t}%</text>`; });
     bars.forEach((p, i) => {
       const y = i * rowH + 4, v = S[p].pct_of_hindsight, mine = p.startsWith("ours_");
-      s += `<text x="${lw - 8}" y="${y + 15}" text-anchor="end" font-size="12" style="fill:var(--ink-2)">${esc(POLICY[p] || p)}</text>`;
+      const short = p === "allot_ly_block_p25" ? "Allot last year + block p25" : (POLICY[p] || p);
+      s += `<text x="${lw - 8}" y="${y + 15}" text-anchor="end" font-size="12" style="fill:var(--ink-2)">${esc(short)}</text>`;
       s += `<rect x="${lw}" y="${y + 4}" width="${Math.max(2, X(v) - lw)}" height="16" rx="3" style="fill:${mine ? "var(--s1)" : "var(--axis)"}"/>`;
       s += `<text x="${X(v) + 6}" y="${y + 16}" font-size="12" style="fill:var(--ink)">${v.toFixed(1)}%</text>`;
     });
@@ -470,29 +482,33 @@ const DATA = /*__RESULTS__*/null;
     $("bt-forecast").textContent = `Forecast of each night's B2B room-nights, 8–12 weeks ahead: typical error (WAPE) ${(100 * fm.wape_median).toFixed(0)}% vs ${(100 * fm.wape_last_year).toFixed(0)}% for "same night last year"; the 10–90% band held the real value ${(100 * fm.coverage_80).toFixed(0)}% of the time (target 80%, so bands run slightly narrow). ${fm.nights} hotel-nights.`;
     const sens = bt.sensitivity || {};
     const sensRows = [["Headline (allotments capped at last year's production; sold out at 98% occupancy)", bt.summary]]
-      .concat([["uncapped", "Allotments not capped"], ["tau1", "Sold out only at 100% of capacity"], ["budget0.5", "Prepaid budget halved (50% of last year's volume)"]]
+      .concat([["uncapped", "Allotments not capped"], ["tau1", "Sold out only at 100% of capacity"],
+        ["budget0.5", "Budget capped at 50% of last year's volume at block cost"],
+        ["rates_low", "Smaller contract discounts (block −25%, allotment −15%)"], ["rates_high", "Larger contract discounts (block −35%, allotment −25%)"]]
         .filter(([k]) => sens[k]).map(([k, label]) => [label, sens[k]]));
-    $("bt-sens").innerHTML = `<thead><tr><th>Scenario</th><th class="n">Blockwise · Balanced</th><th class="n">Block the median forecast</th><th class="n">Block last year's volume</th><th class="n">Buy as needed only</th></tr></thead><tbody>` +
+    $("bt-sens").innerHTML = `<thead><tr><th>Scenario</th><th class="n">Blockwise · Balanced</th><th class="n">Allot last year + block p25</th><th class="n">Block the median forecast</th><th class="n">Block last year's volume</th><th class="n">Buy as needed only</th></tr></thead><tbody>` +
       sensRows.map(([label, rows]) => { const R = Object.fromEntries(rows.map((r) => [r.policy, r])); const f = (p) => R[p] ? R[p].pct_of_hindsight.toFixed(1) + "%" : "–";
-        return `<tr><td>${esc(label)}</td><td class="n best">${f("ours_0.25")}</td><td class="n">${f("point_forecast_hard")}</td><td class="n">${f("last_year_hard")}</td><td class="n">${f("dynamic_only")}</td></tr>`; }).join("") + "</tbody>";
+        return `<tr><td>${esc(label)}</td><td class="n best">${f("ours_0.25")}</td><td class="n">${f("allot_ly_block_p25")}</td><td class="n">${f("point_forecast_hard")}</td><td class="n">${f("last_year_hard")}</td><td class="n">${f("dynamic_only")}</td></tr>`; }).join("") + "</tbody>";
     const t = DATA.assumptions.terms;
-    $("bt-method").textContent = `Method: every 4 weeks, plan the 4 weeks of stays starting 8 weeks later using only what was known that day (rooms on the books, past nights, past prices), then score against what happened. Real: demand, booking dates, cancellations, prices, sold-out nights. Assumed: contract rates (hard block −${100 * t.hard_discount}%, allotment −${100 * t.soft_discount}%, buy as needed −${100 * t.dyn_discount}% vs market), allotment released ${t.release_days} days before arrival. Hindsight = the best plan possible with perfect knowledge of each round, under the same rules.`;
+    $("bt-method").textContent = `Method: every 4 weeks, plan the 4 weeks of stays starting 8 weeks later using only what was known that day (rooms on the books, past nights, past prices), then score against what happened. Real: demand, booking dates, cancellations, prices, sold-out nights. Assumed: contract rates (hard block −${100 * t.hard_discount}%, allotment −${100 * t.soft_discount}%, buy as needed −${100 * t.dyn_discount}% vs market), allotment released ${t.release_days} days before arrival. Hindsight = the best plan possible with perfect knowledge of each round, under the same rules. Simplification: a night at ≥98% occupancy is treated as closed to buy-as-needed purchases for all of that night's demand, which is why "buy as needed only" scores so low; with a 100% threshold the ranking is unchanged (see sensitivity).`;
   }
 
   // ---------- robustness ----------
-  const RPOL = { "Blockwise (Balanced)": "Blockwise · Balanced", point_forecast_hard: "Block the median forecast", expected_volume_hard: "Block expected volume", dynamic_only: "Buy as needed only" };
+  const RPOL = { "Blockwise (Balanced)": "Blockwise · Balanced", allot_expected_block_p25: "Allot expected + block p25", point_forecast_hard: "Block the median forecast", expected_volume_hard: "Block expected volume", dynamic_only: "Buy as needed only" };
   function renderRobustness() {
-    const rob = DATA.robustness, pols = Object.keys(RPOL);
+    const rob = DATA.robustness, pols = Object.keys(RPOL).filter((p) => p in rob.results[rob.worlds[0]]);
+    const unseen = rob.unseen_worlds || rob.worlds.filter((w) => w !== "base");
     let winsMean = 0, winsTail = 0;
     const rows = rob.worlds.map((w) => {
       const r = rob.results[w];
       const bestMean = Math.max(...pols.map((p) => r[p].mean)), bestTail = Math.max(...pols.map((p) => r[p].cvar95_profit));
-      if (r["Blockwise (Balanced)"].mean >= bestMean - 1e-6) winsMean++;
-      if (r["Blockwise (Balanced)"].cvar95_profit >= bestTail - 1e-6) winsTail++;
-      return `<tr><td>${esc(w)}</td>` + pols.map((p) => `<td class="n ${r[p].mean >= bestMean - 1e-6 ? "best" : ""}">${cr(r[p].mean, 2)}</td><td class="n ${r[p].cvar95_profit >= bestTail - 1e-6 ? "best" : ""}">${cr(r[p].cvar95_profit, 2)}</td>`).join("") + "</tr>";
+      if (unseen.includes(w) && r["Blockwise (Balanced)"].mean >= bestMean - 1e-6) winsMean++;
+      if (unseen.includes(w) && r["Blockwise (Balanced)"].cvar95_profit >= bestTail - 1e-6) winsTail++;
+      return `<tr><td>${esc(w)}${w === "base" ? " (planning world, fresh futures)" : ""}</td>` + pols.map((p) => `<td class="n ${r[p].mean >= bestMean - 1e-6 ? "best" : ""}">${cr(r[p].mean, 2)}</td><td class="n ${r[p].cvar95_profit >= bestTail - 1e-6 ? "best" : ""}">${cr(r[p].cvar95_profit, 2)}</td>`).join("") + "</tr>";
     });
     $("rob").innerHTML = `<thead><tr><th rowspan="2">World</th>${pols.map((p) => `<th class="n" colspan="2">${esc(RPOL[p])}</th>`).join("")}</tr><tr>${pols.map(() => `<th class="n">Expected</th><th class="n">Bad case</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody>`;
-    $("rob-headline").innerHTML = `The Balanced plan was optimised for the base world only, then scored in seven worlds. It had the highest expected profit in <strong>${winsMean} of ${rob.worlds.length}</strong> and the best bad case (average of the worst 5% of futures) in <strong>${winsTail} of ${rob.worlds.length}</strong>. Bold marks the best in each world.`;
+    const warn = rob.status && rob.status !== "optimal" ? `Warning: the Balanced plan's solve returned ${esc(rob.status)}, so this table shows its fallback. ` : "";
+    $("rob-headline").innerHTML = `${warn}The Balanced plan was optimised for the base world only. Against four simple rules it had the highest expected profit in <strong>${winsMean} of ${unseen.length} worlds it was not planned for</strong> and the best bad case (average of the worst 5% of futures) in <strong>${winsTail} of ${unseen.length}</strong>. Bold marks the best in each world.`;
     $("rob-note").textContent = `budget ${cr(rob.budget_inr, 1)} · 4,000 fresh futures per world`;
   }
 
@@ -514,6 +530,9 @@ const DATA = /*__RESULTS__*/null;
     save();
     renderControls(); renderKpis(); renderBuy(); renderFrontier(); renderDist(); renderExposure(); renderGaps();
   }
-  render(); renderBacktest(); renderRobustness(); renderAssumptions();
+  render();
+  for (const section of [renderBacktest, renderRobustness, renderAssumptions]) {
+    try { section(); } catch (e) { console.error("section failed to render:", section.name, e); }  // one bad section must not blank the rest
+  }
 })();
 </script>

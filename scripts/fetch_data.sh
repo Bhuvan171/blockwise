@@ -8,6 +8,6 @@ OUT="data/raw/hotels.csv"
 EXPECTED=16855599
 mkdir -p data/raw
 if [ ! -f "$OUT" ]; then curl -fsSL "$URL" -o "$OUT"; fi
-SIZE=$(stat -c %s "$OUT")
+SIZE=$(wc -c < "$OUT" | tr -d " ")  # portable: works with GNU and BSD/macOS tools
 if [ "$SIZE" -ne "$EXPECTED" ]; then echo "Size mismatch: $SIZE != $EXPECTED" >&2; exit 1; fi
 echo "OK $OUT ($SIZE bytes)"

@@ -214,11 +214,12 @@ class BacktestResult:
         Path(path).write_text(json.dumps(payload, indent=2, default=float))
 
     def to_markdown(self) -> str:
-        head = ("| policy | total profit (EUR) | % of hindsight | fill rate | unsold hard cost (EUR) "
-                "| worst 4-week batch (EUR) | batches with a loss |\n|---|---|---|---|---|---|---|")
+        head = ("| policy | total profit (EUR) | % of hindsight | 90% range | fill rate | unsold hard cost (EUR) "
+                "| worst 4-week batch (EUR) | batches with a loss |\n|---|---|---|---|---|---|---|---|")
         lines = [head]
         for pol, r in self.summary.iterrows():
-            lines.append(f"| {pol} | {r.total_profit:,.0f} | {r.pct_of_hindsight:.1f}% | {r.fill_rate:.1%} | "
+            lines.append(f"| {pol} | {r.total_profit:,.0f} | {r.pct_of_hindsight:.1f}% | "
+                         f"{r.pct_ci_lo:.1f}–{r.pct_ci_hi:.1f}% | {r.fill_rate:.1%} | "
                          f"{r.unsold_hard_cost:,.0f} | {r.worst_batch:,.0f} | {int(r.batches_with_loss)} |")
         return "\n".join(lines)
 
@@ -287,12 +288,20 @@ def run_backtest(bookings: pd.DataFrame, cfg: BacktestConfig, terms: ContractTer
         plans["point_forecast_hard"] = Plan(hard=_cap_to_budget(med_g, spend_coef, budget), soft=np.zeros(G))
         # hotels grant allotments in line with past production; same limit for every policy incl. hindsight
         soft_cap = None if cfg.soft_cap_mult is None else np.floor(ly_g * cfg.soft_cap_mult)
+        # a sensible two-contract rule (fixed before seeing results): allot last year's volume,
+        # hard-block the 25th-percentile forecast
+        p25_g = np.bincount(group, weights=q[:, QUANTILES.index(0.25)], minlength=G) / cells_per_g
+        plans["allot_ly_block_p25"] = Plan(hard=_cap_to_budget(p25_g, spend_coef, budget),
+                                           soft=np.floor(ly_g) if soft_cap is None else soft_cap.copy())
         statuses = {}
         for lam in cfg.lambdas:
             res = optimize(plan_cells, terms, OptimizerParams(risk_aversion=lam, budget=budget, soft_cap=soft_cap))
             statuses[f"ours_{lam:g}"] = res.status
             plans[f"ours_{lam:g}"] = res.plan_int if res.status == "optimal" else Plan.zeros(G)
         hs = optimize(real_cells, terms, OptimizerParams(budget=budget, soft_cap=soft_cap))
+        if hs.status != "optimal":
+            raise RuntimeError(f"hindsight solve for the batch starting {nights[0].date()} returned {hs.status!r}; "
+                               "the 100% benchmark would be wrong, so the backtest stops")
         statuses["hindsight"] = hs.status
         plans["hindsight"] = hs.plan
 
@@ -340,7 +349,15 @@ def _summarise(by_batch: pd.DataFrame) -> pd.DataFrame:
     tot["batches_with_loss"] = (per_batch < 0).groupby("policy").sum()
     tot["fill_rate"] = tot["served"] / tot["demand"]
     tot["pct_of_hindsight"] = 100.0 * tot["total_profit"] / tot.loc["hindsight", "total_profit"]
-    order = ["dynamic_only", "last_year_hard", "point_forecast_hard"] + \
+    # 90% range from resampling planning rounds (both hotels of a round stay together)
+    wide = per_batch.unstack("policy")
+    rng = np.random.default_rng(0)
+    idx = rng.integers(0, len(wide), size=(2000, len(wide)))
+    sums = wide.to_numpy()[idx].sum(axis=1)  # [draws, policies]
+    ratios = 100.0 * sums / sums[:, [list(wide.columns).index("hindsight")]]
+    tot["pct_ci_lo"] = pd.Series(np.percentile(ratios, 5, axis=0), index=wide.columns)
+    tot["pct_ci_hi"] = pd.Series(np.percentile(ratios, 95, axis=0), index=wide.columns)
+    order = ["dynamic_only", "last_year_hard", "point_forecast_hard", "allot_ly_block_p25"] + \
             sorted([p for p in tot.index if p.startswith("ours_")], key=lambda s: float(s.split("_")[1])) + ["hindsight"]
     return tot.loc[[p for p in order if p in tot.index]]
 

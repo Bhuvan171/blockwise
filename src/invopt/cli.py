@@ -10,9 +10,28 @@ OUT = ROOT / "out"
 DATA = ROOT / "data" / "raw" / "hotels.csv"
 
 
+def terms_from_args(args):
+    """ContractTerms from --hard/--soft/--dyn-discount (defaults = the headline assumptions), validated."""
+    from invopt.config import ContractTerms
+
+    d = ContractTerms()
+
+    def pick(name):
+        v = getattr(args, name, None)
+        return getattr(d, name) if v is None else v
+
+    return ContractTerms(hard_discount=pick("hard_discount"), soft_discount=pick("soft_discount"),
+                         dyn_discount=pick("dyn_discount")).validate()
+
+
+def _add_terms_flags(parser) -> None:
+    parser.add_argument("--hard-discount", type=float, default=None, help="hard block rate vs reference (default 0.30)")
+    parser.add_argument("--soft-discount", type=float, default=None, help="allotment rate vs reference (default 0.20)")
+    parser.add_argument("--dyn-discount", type=float, default=None, help="buy-as-needed rate vs market (default 0.10)")
+
+
 def cmd_backtest(args) -> None:
     from invopt.backtest import BacktestConfig, run_backtest
-    from invopt.config import ContractTerms
     from invopt.hotel_data import load_bookings
 
     if not DATA.exists():
@@ -21,7 +40,7 @@ def cmd_backtest(args) -> None:
     bookings, _ = load_bookings(DATA)
     cap = None if args.soft_cap_mult.lower() == "none" else float(args.soft_cap_mult)
     cfg = BacktestConfig(budget_share=args.budget_share, soft_cap_mult=cap, soldout_tau=args.soldout_tau)
-    res = run_backtest(bookings, cfg, ContractTerms())
+    res = run_backtest(bookings, cfg, terms_from_args(args))
     OUT.mkdir(exist_ok=True)
     suffix = args.tag or ""
     res.to_json(OUT / f"backtest{suffix}.json")
@@ -41,7 +60,7 @@ def cmd_grid(args) -> None:
 
     t0 = time.perf_counter()
     res = run_grid(n_plan=args.n_plan, n_eval=args.n_eval, workers=args.workers,
-                   backtest_path=OUT / "backtest.json")
+                   backtest_path=OUT / "backtest.json", terms=terms_from_args(args))
     OUT.mkdir(exist_ok=True)
     (OUT / "results.json").write_text(json.dumps(res, allow_nan=False, separators=(",", ":")))
     bad = [(b, r, c["status"]) for b, row in res["cells"].items() for r, c in row.items() if c["status"] != "optimal"]
@@ -70,7 +89,7 @@ def cmd_all(args) -> None:
     cmd_page(args)
 
 
-def main(argv=None) -> None:
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="invopt")
     sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("backtest", help="walk-forward backtest on real bookings")
@@ -81,18 +100,25 @@ def main(argv=None) -> None:
     b.add_argument("--soldout-tau", type=float, default=0.98,
                    help="a night counts as sold out when occupancy >= tau x estimated capacity")
     b.add_argument("--tag", default="", help="suffix for output files, e.g. _uncapped")
+    _add_terms_flags(b)
     b.set_defaults(func=cmd_backtest)
     g = sub.add_parser("grid", help="plans for every budget x risk level on the synthetic portfolio")
     g.add_argument("--n-plan", type=int, default=150)
     g.add_argument("--n-eval", type=int, default=4000)
     g.add_argument("--workers", type=int, default=2)
+    _add_terms_flags(g)
     g.set_defaults(func=cmd_grid)
     p = sub.add_parser("page", help="render out/blockwise*.html from out/results.json")
     p.set_defaults(func=cmd_page)
     a = sub.add_parser("all", help="backtest, grid, then page (headline settings)")
     a.set_defaults(func=cmd_all, budget_share=None, soft_cap_mult="1.0", soldout_tau=0.98, tag="",
                    n_plan=150, n_eval=4000, workers=2)
-    args = ap.parse_args(argv)
+    _add_terms_flags(a)
+    return ap
+
+
+def main(argv=None) -> None:
+    args = build_parser().parse_args(argv)
     args.func(args)
 
 

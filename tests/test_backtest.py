@@ -90,3 +90,35 @@ def test_allotment_capped_at_last_year_production(bookings):
         rows = bb[bb.policy == pol]
         assert (rows["soft_units"] <= rows["soft_cap_units"] + 1e-6).all(), pol
     assert (bb["soft_cap_units"] > 0).any()
+
+
+def test_two_contract_rule_baseline(short_run):
+    s = short_run.summary
+    assert "allot_ly_block_p25" in s.index
+    rows = short_run.by_batch[short_run.by_batch.policy == "allot_ly_block_p25"]
+    assert (rows["soft_units"] <= rows["soft_cap_units"] + 1e-6).all()
+    assert (rows["soft_units"] > 0).any() and (rows["hard_units"] > 0).any()
+
+
+def test_bootstrap_interval_brackets_point(short_run):
+    s = short_run.summary
+    for pol, r in s.iterrows():
+        assert r.pct_ci_lo <= r.pct_of_hindsight + 1e-9 <= r.pct_ci_hi + 2e-9, pol
+    assert s.loc["hindsight", "pct_ci_lo"] == pytest.approx(100.0)
+
+
+def test_hindsight_failure_aborts(bookings, short_cfg, monkeypatch):
+    import invopt.backtest as bt
+    from invopt.economics import Plan
+    from invopt.optimizer import OptResult
+    real = bt.optimize
+
+    def flaky(cells, terms, params):
+        if cells.n_scen == 1:  # the hindsight solve
+            z = Plan.zeros(cells.n_groups)
+            return OptResult(plan=z, plan_int=z, status="time_limit", objective=float("nan"),
+                             budget_shadow_price=0.0, solve_seconds=0.0)
+        return real(cells, terms, params)
+    monkeypatch.setattr(bt, "optimize", flaky)
+    with pytest.raises(RuntimeError, match="hindsight"):
+        run_backtest(bookings, short_cfg, ContractTerms())

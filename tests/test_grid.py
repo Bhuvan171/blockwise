@@ -54,3 +54,43 @@ def test_robustness_table(tiny):
                                   "higher correlation", "later bookings", "more volatile"}
     for world, by_policy in rob["results"].items():
         assert {"Blockwise (Balanced)", "point_forecast_hard", "expected_volume_hard", "dynamic_only"} <= set(by_policy)
+
+
+def test_marginal_profit_is_out_of_sample_frontier_slope(tiny):
+    b = tiny["budgets_inr"]
+    for risk in RISKS:
+        means = tiny["frontier"][risk]["mean"]
+        for i in range(len(b) - 1):
+            k = tiny["cells"][str(i)][risk]["kpis"]
+            expected = (means[i + 1] - means[i]) / (b[i + 1] - b[i]) * 1e7
+            assert k["marginal_profit_per_cr"] == pytest.approx(expected, abs=1e-2)
+        assert tiny["cells"][str(len(b) - 1)][risk]["kpis"]["marginal_profit_per_cr"] is None
+
+
+def test_robustness_has_two_contract_rule_and_unseen_worlds(tiny):
+    rob = tiny["robustness"]
+    for world in rob["worlds"]:
+        assert "allot_expected_block_p25" in rob["results"][world]
+    assert "base" not in rob["unseen_worlds"] and len(rob["unseen_worlds"]) == len(rob["worlds"]) - 1
+    assert rob["status"] == "optimal"
+
+
+def test_fallbacks_counted_and_marked(tiny):
+    assert tiny["fallback_count"] == 0
+    for risk in RISKS:
+        assert tiny["frontier"][risk]["status"] == ["optimal"] * len(tiny["budgets_inr"])
+
+
+def test_reference_solve_failure_aborts(monkeypatch):
+    import invopt.grid as g
+    from invopt.economics import Plan
+    from invopt.optimizer import OptResult
+
+    def failing(cells, terms, params):
+        z = Plan.zeros(cells.n_groups)
+        return OptResult(plan=z, plan_int=z, status="time_limit", objective=float("nan"),
+                         budget_shadow_price=0.0, solve_seconds=0.0)
+    monkeypatch.setattr(g, "optimize", failing)
+    with pytest.raises(RuntimeError, match="reference"):
+        g.run_grid(budget_fracs=(1.0,), risk_levels={"Max profit": 0.0}, n_plan=10, n_eval=20, weeks=1, workers=1,
+                   backtest_path=None)

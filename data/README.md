@@ -16,8 +16,8 @@
 |---|---|
 | B2B demand per night, booking dates, lead times, cancellations, no-shows | **Real** |
 | Realised selling price per night (mean ADR of B2B room-nights) | **Real** |
-| Hotel occupancy per night (all segments), used for sold-out nights | **Real** (capacity estimated only from nights before the backtest starts) |
-| Contract types and their rates (hard −30%, allotment −20%, buy-as-needed −10% vs reference/market) | **Assumption**, swept for sensitivity |
+| Hotel occupancy per night (all segments), used for sold-out nights | **Real** (capacity estimated only from nights before the first decision date). Simplification: a night at ≥ 98% of capacity is treated as closed to buy-as-needed purchases for all of that night's B2B demand, including bookings made weeks earlier. That is pessimistic for buy-as-needed; the 100% threshold is reported as a sensitivity. |
+| Contract types and their rates (hard −30%, allotment −20%, buy-as-needed −10% vs reference/market) | **Assumption**. Swept: block −25% / allotment −15% (`out/backtest_rates_low.*`) and −35% / −25% (`out/backtest_rates_high.*`) |
 | Allotment hold cost (2%), stockout penalty (10%), salvage (0%), release window (21 days) | **Assumption** |
 | Currency | EUR, as in the source. Never mixed with the synthetic INR portfolio. |
 
