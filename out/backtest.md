@@ -1,0 +1,9 @@
+| policy | total profit (EUR) | % of hindsight | fill rate | unsold hard cost (EUR) | worst 4-week batch (EUR) | batches with a loss |
+|---|---|---|---|---|---|---|
+| dynamic_only | 20,438 | 2.4% | 57.8% | 0 | -19,165 | 6 |
+| last_year_hard | 257,988 | 30.7% | 91.3% | 553,854 | -72,613 | 4 |
+| point_forecast_hard | 522,395 | 62.1% | 94.3% | 342,100 | -2,097 | 2 |
+| ours_0 | 746,875 | 88.8% | 97.6% | 64,081 | 11,595 | 0 |
+| ours_0.25 | 746,835 | 88.8% | 97.1% | 44,598 | 12,216 | 0 |
+| ours_1 | 739,059 | 87.8% | 96.2% | 27,603 | 12,895 | 0 |
+| hindsight | 841,458 | 100.0% | 98.6% | 22,151 | 17,009 | 0 |
