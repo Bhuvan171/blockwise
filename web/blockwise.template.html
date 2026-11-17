@@ -1,0 +1,519 @@
+<title>Blockwise Inventory Planner</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: a planning tool. Controls + KPI row on top, buy list beside two charts, then exposure/gaps, then the proof (real-data backtest, robustness), then assumptions. */
+:root {
+  --page: #f9f9f7; --surface: #fcfcfb; --raised: #ffffff;
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --accent: #2a78d6; --accent-ink: #1c5cab; --accent-wash: #e8f1fc;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --good: #006300; --bad: #b42a2a; --warn-bg: #fff4d6; --warn-ink: #6b4a00;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #0d0d0d; --surface: #1a1a19; --raised: #222221;
+    --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --accent: #3987e5; --accent-ink: #86b6ef; --accent-wash: #16263a;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --good: #0ca30c; --bad: #e66767; --warn-bg: #3a2e10; --warn-ink: #f3d27a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #0d0d0d; --surface: #1a1a19; --raised: #222221;
+  --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --accent: #3987e5; --accent-ink: #86b6ef; --accent-wash: #16263a;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --good: #0ca30c; --bad: #e66767; --warn-bg: #3a2e10; --warn-ink: #f3d27a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--page); color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.5;
+  font-variant-numeric: tabular-nums; }
+.wrap { max-width: 1280px; margin: 0 auto; padding-block: 24px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 20px; }
+header { display: grid; gap: 6px; }
+.brand { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 14px; }
+h1 { font-size: 24px; line-height: 1.15; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 16px; margin: 0; text-wrap: balance; }
+h3 { font-size: 13px; margin: 0; color: var(--ink-2); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+p { margin: 0; }
+.sub { color: var(--ink-2); max-width: 75ch; }
+.tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--ink-2); background: var(--surface); white-space: nowrap; }
+.tag.real { color: var(--good); border-color: currentColor; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.panel > .head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 12px; }
+.note { font-size: 12px; color: var(--muted); }
+.controls { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: flex-end; }
+.control { display: grid; gap: 6px; }
+.control label, .control .lbl { font-size: 12px; color: var(--ink-2); font-weight: 600; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--raised); }
+.seg button { font: inherit; font-size: 13px; border: 0; background: transparent; color: var(--ink); padding: 6px 12px; cursor: pointer; border-right: 1px solid var(--border); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.seg button:focus-visible, select:focus-visible, th button:focus-visible, .linkbtn:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+select { font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--raised); color: var(--ink); max-width: 100%; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; display: grid; gap: 2px; align-content: start; }
+.kpi .k { font-size: 12px; color: var(--ink-2); }
+.kpi .v { font-size: 24px; font-weight: 650; letter-spacing: -0.01em; }
+.kpi .d { font-size: 12px; color: var(--muted); }
+.kpi .d.up { color: var(--good); } .kpi .d.down { color: var(--bad); }
+.banner { background: var(--warn-bg); color: var(--warn-ink); border-radius: 6px; padding: 8px 12px; font-size: 13px; }
+.grid2 { display: grid; gap: 20px; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: start; }
+.stack { display: grid; gap: 20px; min-width: 0; }
+@media (max-width: 1000px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
+.scroll { overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { font-size: 12px; color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+th button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+td.n, th.n { text-align: right; white-space: nowrap; }
+tr.mine td { background: var(--accent-wash); }
+td .why { color: var(--muted); font-size: 12px; margin-top: 2px; max-width: 46ch; }
+td .why > summary { font-weight: 400; color: var(--accent-ink); width: max-content; }
+.best { font-weight: 650; }
+.linkbtn { font: inherit; font-size: 13px; color: var(--accent-ink); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { font-family: var(--font); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink-2); }
+.legend i { display: inline-block; width: 12px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+.tip { position: absolute; pointer-events: none; background: var(--raised); color: var(--ink); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); min-width: 150px; z-index: 5; }
+.tip b { display: block; margin-bottom: 4px; }
+.tip .row { display: flex; justify-content: space-between; gap: 12px; }
+.tip .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+.headline { font-size: 15px; max-width: 80ch; }
+.headline strong { font-weight: 650; }
+details > summary { cursor: pointer; font-weight: 600; }
+details[open] > summary { margin-bottom: 10px; }
+.cols { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+footer { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+@media (prefers-reduced-motion: no-preference) { .seg button { transition: background 120ms; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1>Blockwise</h1>
+      <span class="tag">Inventory commitment planner</span>
+      <span class="tag">Portfolio: synthetic, Jan–Mar 2027</span>
+      <span class="tag real">Proof: real bookings</span>
+    </div>
+    <p class="sub">Which hotel rooms and flight seats to lock in, how many, and under which contract (prepaid hard block, refundable allotment, or buy as needed), within a budget, trading expected profit against bad-case losses and sold-out searches. Every plan below was optimised on 150 simulated futures and scored on 4,000 fresh ones.</p>
+  </header>
+
+  <section class="panel" aria-label="Plan settings">
+    <div class="controls">
+      <div class="control"><span class="lbl" id="lbl-budget">Prepaid budget</span><div class="seg" id="budget" role="group" aria-labelledby="lbl-budget"></div></div>
+      <div class="control"><span class="lbl" id="lbl-risk">Risk appetite</span><div class="seg" id="risk" role="group" aria-labelledby="lbl-risk"></div></div>
+      <div class="control"><label for="shock">Stress test: what if…</label><select id="shock"></select></div>
+    </div>
+    <div class="banner" id="status" hidden></div>
+  </section>
+
+  <section class="kpis" id="kpis" aria-label="Plan results"></section>
+
+  <div class="grid2">
+    <section class="panel" aria-labelledby="h-buy">
+      <div class="head"><h2 id="h-buy">Buy list</h2><span class="note" id="buy-note"></span></div>
+      <div class="scroll"><table id="buy"></table></div>
+      <div><button class="linkbtn" id="buy-more" type="button"></button></div>
+    </section>
+    <div class="stack">
+      <section class="panel" aria-labelledby="h-front">
+        <div class="head"><h2 id="h-front">Budget frontier</h2><span class="note">Expected profit, ₹ crore</span></div>
+        <div class="legend" id="front-legend"></div>
+        <div class="chart" id="frontier" role="img" aria-label="Expected profit by budget for each risk appetite"></div>
+        <p class="note">Each line is a risk appetite; the ringed point is the plan shown. Flattening lines mean extra budget buys little.</p>
+      </section>
+      <section class="panel" aria-labelledby="h-dist">
+        <div class="head"><h2 id="h-dist">Profit across 4,000 futures</h2><span class="note">share of futures, by portfolio profit</span></div>
+        <div class="legend" id="dist-legend"></div>
+        <div class="chart" id="dist" role="img" aria-label="Distribution of portfolio profit across simulated futures"></div>
+      </section>
+    </div>
+  </div>
+
+  <div class="cols">
+    <section class="panel" aria-labelledby="h-exp">
+      <div class="head"><h2 id="h-exp">Where the prepaid money sits</h2><span class="note">hard blocks, ₹ crore</span></div>
+      <div class="chart" id="exposure" role="img" aria-label="Prepaid spend by region"></div>
+      <p class="note">Risk policy: no region may hold more than <span id="region-share"></span> of the budget.</p>
+    </section>
+    <section class="panel" aria-labelledby="h-gaps">
+      <div class="head"><h2 id="h-gaps">Where a new supplier would help most</h2></div>
+      <p class="note">Weeks where this plan still turns demand away (sold out in the market and not covered), valued at the margin and goodwill lost. Candidates for supplier integration.</p>
+      <div class="scroll"><table id="gaps"></table></div>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="h-bt" id="bt-panel">
+    <div class="head"><h2 id="h-bt">Proof on real bookings</h2><span class="tag real">Real data · EUR</span></div>
+    <p class="headline" id="bt-headline"></p>
+    <div class="grid2">
+      <div class="scroll"><table id="bt-table"></table></div>
+      <div class="stack">
+        <div class="chart" id="bt-chart" role="img" aria-label="Share of perfect-hindsight profit captured by each policy"></div>
+        <p class="note" id="bt-forecast"></p>
+      </div>
+    </div>
+    <details>
+      <summary>Sensitivity: does the result depend on our assumptions?</summary>
+      <div class="scroll"><table id="bt-sens"></table></div>
+    </details>
+    <p class="note" id="bt-method"></p>
+  </section>
+
+  <section class="panel" aria-labelledby="h-rob">
+    <div class="head"><h2 id="h-rob">Tested in worlds it was not planned in</h2><span class="note" id="rob-note"></span></div>
+    <p class="headline" id="rob-headline"></p>
+    <div class="scroll"><table id="rob"></table></div>
+  </section>
+
+  <section class="panel">
+    <details>
+      <summary>Assumptions and how to read this page</summary>
+      <div class="cols" id="assumptions"></div>
+    </details>
+  </section>
+
+  <footer>
+    <p>Prototype built for TBO VoyageHack 4.0 (Automate Inventory Optimization); not a TBO product. The portfolio is synthetic and every parameter is listed above. The proof uses the public <em>Hotel booking demand</em> dataset (António, de Almeida &amp; Nunes, Data in Brief, 2019): real demand, booking dates, cancellations, prices and sold-out nights; contract rates are assumptions.</p>
+    <p id="gen-note"></p>
+  </footer>
+</div>
+
+<script>
+const DATA = /*__RESULTS__*/null;
+(function () {
+  "use strict";
+  if (!DATA) { document.querySelector(".wrap").insertAdjacentHTML("beforeend", "<p>No results embedded.</p>"); return; }
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const CR = 1e7;
+  const cr = (x, d = 1) => {
+    if (x == null) return "–";
+    const a = Math.abs(x), sign = x < 0 ? "−" : "";
+    return sign + (a < 0.1 * CR ? "₹" + (a / 1e5).toFixed(1) + " L" : "₹" + (a / CR).toFixed(d) + " Cr");
+  };
+  const pct = (x, d = 0) => x == null ? "–" : (100 * x).toFixed(d) + "%";
+  const eur = (x) => x == null ? "–" : (x < 0 ? "−€" : "€") + Math.abs(Math.round(x)).toLocaleString("en-US");
+  const num = (x) => x == null ? "–" : Math.round(x).toLocaleString("en-IN");
+  const RISKS = Object.keys(DATA.risk_levels);
+  const SERIES = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)"];
+  const SHOCKS = DATA.shock_labels || {};
+  const defaultRisk = RISKS.includes("Balanced") ? "Balanced" : RISKS[0];
+  // open on the largest budget that still binds, so "next ₹1 Cr earns" is meaningful
+  let defaultB = DATA.reference_budget_index ?? 0;
+  for (let i = DATA.budgets_inr.length - 1; i >= 0; i--) {
+    const k = DATA.cells[String(i)][defaultRisk].kpis;
+    if ((k.budget_shadow_price || 0) > 1e-6) { defaultB = i; break; }
+  }
+  const state = { b: defaultB, risk: defaultRisk, shock: "none", sort: "exp_profit_inr", showAll: false };
+  try { const saved = JSON.parse(localStorage.getItem("blockwise-state") || "{}"); Object.assign(state, saved, { showAll: false }); } catch (e) {}
+  if (!(String(state.b) in DATA.cells)) state.b = DATA.reference_budget_index ?? 0;
+  if (!RISKS.includes(state.risk)) state.risk = RISKS[0];
+  if (state.shock !== "none" && !(state.shock in SHOCKS)) state.shock = "none";
+  const save = () => { try { localStorage.setItem("blockwise-state", JSON.stringify({ b: state.b, risk: state.risk, shock: state.shock })); } catch (e) {} };
+
+  // ---------- controls ----------
+  function segButtons(el, items, current, onPick) {
+    el.innerHTML = items.map(([v, label]) => `<button type="button" aria-pressed="${String(v) === String(current)}" data-v="${esc(v)}">${esc(label)}</button>`).join("");
+    el.onclick = (e) => { const b = e.target.closest("button"); if (b) onPick(b.dataset.v); };
+  }
+  function renderControls() {
+    segButtons($("budget"), DATA.budgets_inr.map((b, i) => [i, cr(b, 1).replace(".0 Cr", " Cr")]), state.b, (v) => { state.b = +v; render(); });
+    segButtons($("risk"), RISKS.map((r) => [r, r]), state.risk, (v) => { state.risk = v; render(); });
+    const sel = $("shock");
+    sel.innerHTML = `<option value="none">No shock (base world)</option>` + Object.entries(SHOCKS).map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join("");
+    sel.value = state.shock;
+    sel.onchange = () => { state.shock = sel.value; render(); };
+  }
+
+  const cell = () => DATA.cells[String(state.b)][state.risk];
+  const _lineCache = new Map();
+  function linesOf(c) {  // rebuild row objects from the columnar form written by page.compact()
+    const L = c.lines;
+    if (Array.isArray(L)) return L;
+    if (_lineCache.has(c)) return _lineCache.get(c);
+    const rows = L.product.map((pi, i) => {
+      const p = DATA.line_products[pi];
+      return { product: p.name, kind: p.kind, region: p.region, week_start: DATA.line_weeks[L.week[i]], hard: L.hard[i], soft: L.soft[i],
+        prepaid_inr: L.prepaid[i], exp_profit_inr: L.profit[i], p_line_loss: L.p_loss[i], hard_sell_through: L.sell[i], reason: L.reason[i] };
+    });
+    _lineCache.set(c, rows);
+    return rows;
+  }
+
+  // ---------- KPIs ----------
+  function renderKpis() {
+    const c = cell(), base = c.kpis, k = state.shock === "none" ? base : c.shocks[state.shock].kpis;
+    const delta = (key, fmt, higherIsGood = true) => {
+      if (state.shock === "none") return "";
+      const d = k[key] - base[key];
+      const cls = (d >= 0) === higherIsGood ? "up" : "down";
+      return `<span class="d ${Math.abs(d) < 1e-9 ? "" : cls}">${d >= 0 ? "+" : "−"}${fmt(Math.abs(d))} vs no shock</span>`;
+    };
+    const shadow = base.budget_shadow_price || 0;
+    const tiles = [
+      ["Expected profit", cr(k.mean, 2), delta("mean", (x) => cr(x, 2))],
+      ["Bad case (average of worst 5%)", cr(k.cvar95_profit, 2), delta("cvar95_profit", (x) => cr(x, 2))],
+      ["Chance of a loss", pct(k.p_loss, 1), delta("p_loss", (x) => pct(x, 1), false)],
+      ["Demand served", pct(k.fill_rate, 1), delta("fill_rate", (x) => pct(x, 1))],
+      ["Prepaid spend", cr(base.spend, 1), `<span class="d">of ${cr(DATA.budgets_inr[state.b], 1)} budget</span>`],
+      ["Next ₹1 Cr of budget earns", shadow > 1e-6 ? cr(shadow * CR, 2) : "Not binding", `<span class="d">${shadow > 1e-6 ? "in expected profit" : "this plan does not use the full budget"}</span>`],
+    ];
+    $("kpis").innerHTML = tiles.map(([kk, v, d]) => `<div class="kpi"><span class="k">${kk}</span><span class="v">${v}</span>${d}</div>`).join("");
+    const st = $("status");
+    if (c.status !== "optimal") { st.hidden = false; st.textContent = `The optimiser did not finish for this setting (${c.status}); showing the buy-as-needed fallback.`; }
+    else st.hidden = true;
+  }
+
+  // ---------- buy list ----------
+  const BUY_COLS = [["product", "Product · week", false], ["hard", "Hard block", true], ["soft", "Allotment", true],
+    ["prepaid_inr", "Prepaid", true], ["exp_profit_inr", "Expected profit", true], ["p_line_loss", "Chance of loss", true]];
+  function renderBuy() {
+    const lines = [...linesOf(cell())];
+    const key = state.sort;
+    lines.sort((a, b) => key === "product" ? String(a.product).localeCompare(b.product) || a.week_start.localeCompare(b.week_start) : (b[key] ?? -Infinity) - (a[key] ?? -Infinity));
+    const shown = state.showAll ? lines : lines.slice(0, 20);
+    const totalUnits = lines.reduce((s, l) => s + l.hard + l.soft, 0);
+    $("buy-note").textContent = `${lines.length} commitments · ${num(totalUnits)} room-nights/seats`;
+    $("buy").innerHTML = `<thead><tr>${BUY_COLS.map(([k, l, n]) => `<th class="${n ? "n" : ""}" aria-sort="${k === key ? "descending" : "none"}"><button type="button" data-k="${k}">${l}${k === key ? " ▾" : ""}</button></th>`).join("")}</tr></thead><tbody>` +
+      shown.map((l) => `<tr><td><div>${esc(l.product)} · wk of ${esc(l.week_start.slice(5))}</div><details class="why"><summary>why</summary>${esc(l.reason)}</details></td>
+        <td class="n">${num(l.hard)}</td><td class="n">${num(l.soft)}</td><td class="n">${cr(l.prepaid_inr, 2)}</td>
+        <td class="n">${cr(l.exp_profit_inr, 2)}</td><td class="n">${pct(l.p_line_loss)}</td></tr>`).join("") + "</tbody>";
+    $("buy").querySelector("thead").onclick = (e) => { const b = e.target.closest("button"); if (b) { state.sort = b.dataset.k; renderBuy(); } };
+    const more = $("buy-more");
+    more.hidden = lines.length <= 20;
+    more.textContent = state.showAll ? "Show top 20" : `Show all ${lines.length}`;
+    more.onclick = () => { state.showAll = !state.showAll; renderBuy(); };
+  }
+
+  // ---------- chart helpers ----------
+  function niceTicks(lo, hi, n = 5) {
+    if (hi - lo < 1e-9) { hi = lo + 1; }
+    const step0 = (hi - lo) / n, mag = Math.pow(10, Math.floor(Math.log10(step0)));
+    const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= step0) || 10 * mag;
+    const top = Math.ceil(hi / step - 1e-9) * step;  // last tick must reach the data maximum
+    const t = []; for (let v = Math.floor(lo / step) * step; v <= top + 1e-9; v += step) t.push(+v.toFixed(10));
+    return t;
+  }
+  function tipAt(chart, html, x, y) {
+    let tip = chart.querySelector(".tip");
+    if (!tip) { tip = document.createElement("div"); tip.className = "tip"; chart.appendChild(tip); }
+    tip.innerHTML = html; tip.hidden = false;
+    const w = chart.clientWidth, tw = tip.offsetWidth;
+    tip.style.left = Math.min(Math.max(0, x + 14), Math.max(0, w - tw)) + "px";
+    tip.style.top = Math.max(0, y - 10) + "px";
+  }
+  function hideTip(chart) { const t = chart.querySelector(".tip"); if (t) t.hidden = true; }
+
+  // ---------- frontier (one line per risk level) ----------
+  function renderFrontier() {
+    const el = $("frontier");
+    const W = 560, H = 260, m = { l: 52, r: 96, t: 12, b: 34 };
+    const xs = DATA.budgets_inr.map((b) => b / CR);
+    const all = RISKS.flatMap((r) => DATA.frontier[r].mean.map((v) => v / CR));
+    const yt = niceTicks(Math.min(...all), Math.max(...all));  // line chart: zoom to the data so risk levels separate
+    const x0 = Math.min(...xs), x1 = Math.max(...xs);
+    const X = (v) => m.l + (x1 === x0 ? 0.5 : (v - x0) / (x1 - x0)) * (W - m.l - m.r);
+    const Y = (v) => H - m.b - (v - yt[0]) / (yt[yt.length - 1] - yt[0]) * (H - m.t - m.b);
+    let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+    yt.forEach((t) => { s += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(t)}" y2="${Y(t)}" style="stroke:var(--grid)" stroke-width="1"/><text x="${m.l - 8}" y="${Y(t) + 4}" text-anchor="end" font-size="11" style="fill:var(--muted)">${t.toFixed(t % 1 ? 1 : 0)}</text>`; });
+    xs.forEach((v) => { s += `<text x="${X(v)}" y="${H - m.b + 18}" text-anchor="middle" font-size="11" style="fill:var(--muted)">₹${v.toFixed(v % 1 ? 1 : 0)} Cr</text>`; });
+    s += `<line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}" style="stroke:var(--axis)"/>`;
+    const labels = [];
+    RISKS.forEach((r, i) => {
+      const ys = DATA.frontier[r].mean.map((v) => v / CR);
+      const pts = xs.map((x, j) => `${X(x)},${Y(ys[j])}`).join(" ");
+      s += `<polyline points="${pts}" fill="none" style="stroke:${SERIES[i]}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+      xs.forEach((x, j) => { s += `<circle cx="${X(x)}" cy="${Y(ys[j])}" r="4" style="fill:${SERIES[i]};stroke:var(--surface)" stroke-width="2"/>`; });
+      labels.push({ y: Y(ys[ys.length - 1]), text: r, i });
+    });
+    labels.sort((a, b) => a.y - b.y);
+    for (let k = 1; k < labels.length; k++) if (labels[k].y - labels[k - 1].y < 13) labels[k].y = labels[k - 1].y + 13;
+    labels.forEach((l) => { s += `<text x="${W - m.r + 8}" y="${l.y + 4}" font-size="11" style="fill:var(--ink-2)">${esc(l.text)}</text>`; });
+    const ci = RISKS.indexOf(state.risk);
+    const cy = DATA.frontier[state.risk].mean[state.b] / CR;
+    s += `<circle cx="${X(xs[state.b])}" cy="${Y(cy)}" r="8" fill="none" style="stroke:var(--ink)" stroke-width="2"/>`;
+    s += `<line class="xh" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" style="stroke:var(--axis)" stroke-dasharray="3 3" visibility="hidden"/>`;
+    s += `<rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent" class="hit"/></svg>`;
+    el.innerHTML = s;
+    $("front-legend").innerHTML = RISKS.map((r, i) => `<span><i style="background:${SERIES[i]}"></i>${esc(r)}</span>`).join("");
+    const svg = el.querySelector("svg"), hit = svg.querySelector(".hit"), xh = svg.querySelector(".xh");
+    hit.addEventListener("mousemove", (e) => {
+      const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+      const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+      let j = 0; xs.forEach((x, k) => { if (Math.abs(X(x) - p.x) < Math.abs(X(xs[j]) - p.x)) j = k; });
+      xh.setAttribute("x1", X(xs[j])); xh.setAttribute("x2", X(xs[j])); xh.setAttribute("visibility", "visible");
+      const rows = RISKS.map((r, i) => `<div class="row"><span><span class="sw" style="background:${SERIES[i]}"></span>${esc(r)}</span><span>${cr(DATA.frontier[r].mean[j], 2)}</span></div>`).join("");
+      const rect = el.getBoundingClientRect();
+      tipAt(el, `<b>Budget ${cr(DATA.budgets_inr[j], 1)}</b>${rows}<div class="note">bad case: ${cr(DATA.frontier[state.risk].cvar95[j], 2)} (${esc(state.risk)})</div>`, e.clientX - rect.left, e.clientY - rect.top);
+    });
+    hit.addEventListener("mouseleave", () => { xh.setAttribute("visibility", "hidden"); hideTip(el); });
+    hit.addEventListener("click", (e) => {
+      const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+      const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+      let j = 0; xs.forEach((x, k) => { if (Math.abs(X(x) - p.x) < Math.abs(X(xs[j]) - p.x)) j = k; });
+      state.b = j; render();
+    });
+  }
+
+  // ---------- profit distribution (base vs shock) ----------
+  function renderDist() {
+    const el = $("dist"), c = cell();
+    const edges = c.histogram_base.edges.map((v) => v / CR);
+    const series = [{ name: "No shock", color: SERIES[0], counts: c.histogram_base.counts }];
+    if (state.shock !== "none") series.push({ name: SHOCKS[state.shock].split(":")[0], color: SERIES[1], counts: c.shocks[state.shock].histogram.counts });
+    const totals = series.map((s) => s.counts.reduce((a, b) => a + b, 0) || 1);
+    const W = 560, H = 220, m = { l: 44, r: 12, t: 10, b: 34 };
+    const ymax = Math.max(...series.flatMap((s, i) => s.counts.map((v) => v / totals[i])));
+    const yt = niceTicks(0, ymax, 4);
+    const X = (v) => m.l + (v - edges[0]) / (edges[edges.length - 1] - edges[0]) * (W - m.l - m.r);
+    const Y = (v) => H - m.b - v / yt[yt.length - 1] * (H - m.t - m.b);
+    let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+    yt.forEach((t) => { s += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(t)}" y2="${Y(t)}" style="stroke:var(--grid)"/><text x="${m.l - 6}" y="${Y(t) + 4}" text-anchor="end" font-size="11" style="fill:var(--muted)">${Math.round(t * 100)}%</text>`; });
+    niceTicks(edges[0], edges[edges.length - 1], 6).filter((t) => t >= edges[0] && t <= edges[edges.length - 1]).forEach((t) => {
+      s += `<text x="${X(t)}" y="${H - m.b + 18}" text-anchor="middle" font-size="11" style="fill:var(--muted)">₹${t.toFixed(Math.abs(t) < 10 ? 1 : 0)} Cr</text>`;
+    });
+    if (edges[0] < 0 && edges[edges.length - 1] > 0) s += `<line x1="${X(0)}" x2="${X(0)}" y1="${m.t}" y2="${H - m.b}" style="stroke:var(--ink-2)" stroke-dasharray="4 3"/><text x="${X(0) + 4}" y="${m.t + 10}" font-size="11" style="fill:var(--ink-2)">loss ←</text>`;
+    series.forEach((se, i) => {
+      let d = `M${X(edges[0])},${Y(0)}`;
+      se.counts.forEach((v, k) => { const y = Y(v / totals[i]); d += ` L${X(edges[k])},${y} L${X(edges[k + 1])},${y}`; });
+      d += ` L${X(edges[edges.length - 1])},${Y(0)} Z`;
+      s += `<path d="${d}" style="fill:${se.color};stroke:${se.color}" fill-opacity="0.16" stroke-width="2" stroke-linejoin="round"/>`;
+    });
+    s += `<line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}" style="stroke:var(--axis)"/>`;
+    s += `<rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent" class="hit"/></svg>`;
+    el.innerHTML = s;
+    $("dist-legend").innerHTML = series.map((se) => `<span><i style="background:${se.color}"></i>${esc(se.name)}</span>`).join("");
+    const svg = el.querySelector("svg"), hit = svg.querySelector(".hit");
+    hit.addEventListener("mousemove", (e) => {
+      const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+      const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+      const k = Math.max(0, Math.min(edges.length - 2, edges.findIndex((v, j) => j < edges.length - 1 && X(edges[j + 1]) >= p.x)));
+      const rows = series.map((se, i) => `<div class="row"><span><span class="sw" style="background:${se.color}"></span>${esc(se.name)}</span><span>${(100 * se.counts[k] / totals[i]).toFixed(1)}%</span></div>`).join("");
+      const rect = el.getBoundingClientRect();
+      tipAt(el, `<b>${cr(edges[k] * CR, 1)} to ${cr(edges[k + 1] * CR, 1)}</b>${rows}`, e.clientX - rect.left, e.clientY - rect.top);
+    });
+    hit.addEventListener("mouseleave", () => hideTip(el));
+  }
+
+  // ---------- exposure ----------
+  function renderExposure() {
+    const el = $("exposure"), ex = cell().exposure;
+    const rows = Object.entries(ex).map(([r, months]) => [r, Object.values(months).reduce((a, b) => a + b, 0), months]).sort((a, b) => b[1] - a[1]);
+    const max = Math.max(1, ...rows.map((r) => r[1]));
+    const W = 520, rowH = 30, H = rows.length * rowH + 8, lw = 110, rw = 70;
+    let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+    rows.forEach(([r, v], i) => {
+      const y = i * rowH + 4, w = (v / max) * (W - lw - rw);
+      s += `<text x="${lw - 8}" y="${y + 17}" text-anchor="end" font-size="12" style="fill:var(--ink-2)">${esc(r)}</text>`;
+      s += `<rect x="${lw}" y="${y + 5}" width="${Math.max(w, v > 0 ? 2 : 0)}" height="16" rx="3" style="fill:var(--s1)" data-i="${i}"/>`;
+      s += `<text x="${lw + w + 6}" y="${y + 17}" font-size="12" style="fill:var(--ink)">${cr(v, 2)}</text>`;
+      s += `<rect x="0" y="${y}" width="${W}" height="${rowH}" fill="transparent" class="hit" data-i="${i}"/>`;
+    });
+    el.innerHTML = s + "</svg>";
+    el.querySelectorAll(".hit").forEach((h) => {
+      h.addEventListener("mousemove", (e) => {
+        const [r, v, months] = rows[+h.dataset.i];
+        const rect = el.getBoundingClientRect();
+        tipAt(el, `<b>${esc(r)} · ${cr(v, 2)}</b>` + Object.entries(months).map(([mo, x]) => `<div class="row"><span>${esc(mo)}</span><span>${cr(x, 2)}</span></div>`).join(""), e.clientX - rect.left, e.clientY - rect.top);
+      });
+      h.addEventListener("mouseleave", () => hideTip(el));
+    });
+    $("region-share").textContent = pct(DATA.assumptions.region_share);
+  }
+
+  function renderGaps() {
+    const g = cell().gaps;
+    $("gaps").innerHTML = g.length ? `<thead><tr><th>Product · week</th><th class="n">Bookings turned away</th><th class="n">Value lost</th></tr></thead><tbody>` +
+      g.map((x) => `<tr><td>${esc(x.product)} · wk of ${esc(x.week_start.slice(5))}</td><td class="n">${num(x.exp_lost_units)}</td><td class="n">${cr(x.value_inr, 2)}</td></tr>`).join("") + "</tbody>"
+      : `<tbody><tr><td>This plan serves essentially all demand.</td></tr></tbody>`;
+  }
+
+  // ---------- real-data backtest ----------
+  const POLICY = { dynamic_only: "Buy as needed only", last_year_hard: "Block last year's volume", point_forecast_hard: "Block the median forecast",
+    "ours_0": "Blockwise · Max profit", "ours_0.25": "Blockwise · Balanced", "ours_1": "Blockwise · Careful", hindsight: "Perfect hindsight (upper bound)" };
+  function renderBacktest() {
+    const bt = DATA.backtest;
+    if (!bt) { $("bt-panel").hidden = true; return; }
+    const S = Object.fromEntries(bt.summary.map((r) => [r.policy, r]));
+    const ours = S["ours_0.25"] || S["ours_0"], pf = S.point_forecast_hard, ly = S.last_year_hard;
+    const years = `${bt.config.start.slice(0, 7)} to ${bt.config.end.slice(0, 7)}`;
+    $("bt-headline").innerHTML = `Over <strong>${bt.n_batches} four-week planning rounds</strong> of real B2B bookings at two hotels (${years}), the Balanced plan earned <strong>${eur(ours.total_profit)}</strong>, <strong>${ours.pct_of_hindsight.toFixed(1)}%</strong> of what perfect hindsight could have earned. Blocking the median forecast reached ${pf.pct_of_hindsight.toFixed(1)}%; blocking last year's volume ${ly.pct_of_hindsight.toFixed(1)}%. ${ours.batches_with_loss === 0 ? "No planning round lost money." : ours.batches_with_loss + " rounds lost money."}`;
+    const order = ["dynamic_only", "last_year_hard", "point_forecast_hard", "ours_0", "ours_0.25", "ours_1", "hindsight"].filter((p) => S[p]);
+    $("bt-table").innerHTML = `<thead><tr><th>Policy</th><th class="n">Profit</th><th class="n">% of hindsight</th><th class="n">Demand served</th><th class="n">Unsold block cost</th><th class="n">Worst round</th><th class="n">Rounds with a loss</th></tr></thead><tbody>` +
+      order.map((p) => { const r = S[p]; return `<tr class="${p === "ours_0.25" ? "mine" : ""}"><td>${esc(POLICY[p] || p)}</td><td class="n">${eur(r.total_profit)}</td><td class="n">${r.pct_of_hindsight.toFixed(1)}%</td><td class="n">${pct(r.fill_rate, 1)}</td><td class="n">${eur(r.unsold_hard_cost)}</td><td class="n">${eur(r.worst_batch)}</td><td class="n">${r.batches_with_loss}</td></tr>`; }).join("") + "</tbody>";
+    // bar chart: % of hindsight
+    const el = $("bt-chart"), bars = order.filter((p) => p !== "hindsight");
+    const W = 520, rowH = 28, lw = 180, H = bars.length * rowH + 30;
+    const X = (v) => lw + Math.max(0, v) / 100 * (W - lw - 50);
+    let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+    [0, 25, 50, 75, 100].forEach((t) => { s += `<line x1="${X(t)}" x2="${X(t)}" y1="0" y2="${H - 22}" style="stroke:var(--grid)"/><text x="${X(t)}" y="${H - 6}" text-anchor="middle" font-size="11" style="fill:var(--muted)">${t}%</text>`; });
+    bars.forEach((p, i) => {
+      const y = i * rowH + 4, v = S[p].pct_of_hindsight, mine = p.startsWith("ours_");
+      s += `<text x="${lw - 8}" y="${y + 15}" text-anchor="end" font-size="12" style="fill:var(--ink-2)">${esc(POLICY[p] || p)}</text>`;
+      s += `<rect x="${lw}" y="${y + 4}" width="${Math.max(2, X(v) - lw)}" height="16" rx="3" style="fill:${mine ? "var(--s1)" : "var(--axis)"}"/>`;
+      s += `<text x="${X(v) + 6}" y="${y + 16}" font-size="12" style="fill:var(--ink)">${v.toFixed(1)}%</text>`;
+    });
+    el.innerHTML = s + "</svg>";
+    const fm = bt.forecast_metrics.all;
+    $("bt-forecast").textContent = `Forecast of each night's B2B room-nights, 8–12 weeks ahead: typical error (WAPE) ${(100 * fm.wape_median).toFixed(0)}% vs ${(100 * fm.wape_last_year).toFixed(0)}% for "same night last year"; the 10–90% band held the real value ${(100 * fm.coverage_80).toFixed(0)}% of the time (target 80%, so bands run slightly narrow). ${fm.nights} hotel-nights.`;
+    const sens = bt.sensitivity || {};
+    const sensRows = [["Headline (allotments capped at last year's production; sold out at 98% occupancy)", bt.summary]]
+      .concat([["uncapped", "Allotments not capped"], ["tau1", "Sold out only at 100% of capacity"], ["budget0.5", "Prepaid budget halved (50% of last year's volume)"]]
+        .filter(([k]) => sens[k]).map(([k, label]) => [label, sens[k]]));
+    $("bt-sens").innerHTML = `<thead><tr><th>Scenario</th><th class="n">Blockwise · Balanced</th><th class="n">Block the median forecast</th><th class="n">Block last year's volume</th><th class="n">Buy as needed only</th></tr></thead><tbody>` +
+      sensRows.map(([label, rows]) => { const R = Object.fromEntries(rows.map((r) => [r.policy, r])); const f = (p) => R[p] ? R[p].pct_of_hindsight.toFixed(1) + "%" : "–";
+        return `<tr><td>${esc(label)}</td><td class="n best">${f("ours_0.25")}</td><td class="n">${f("point_forecast_hard")}</td><td class="n">${f("last_year_hard")}</td><td class="n">${f("dynamic_only")}</td></tr>`; }).join("") + "</tbody>";
+    const t = DATA.assumptions.terms;
+    $("bt-method").textContent = `Method: every 4 weeks, plan the 4 weeks of stays starting 8 weeks later using only what was known that day (rooms on the books, past nights, past prices), then score against what happened. Real: demand, booking dates, cancellations, prices, sold-out nights. Assumed: contract rates (hard block −${100 * t.hard_discount}%, allotment −${100 * t.soft_discount}%, buy as needed −${100 * t.dyn_discount}% vs market), allotment released ${t.release_days} days before arrival. Hindsight = the best plan possible with perfect knowledge of each round, under the same rules.`;
+  }
+
+  // ---------- robustness ----------
+  const RPOL = { "Blockwise (Balanced)": "Blockwise · Balanced", point_forecast_hard: "Block the median forecast", expected_volume_hard: "Block expected volume", dynamic_only: "Buy as needed only" };
+  function renderRobustness() {
+    const rob = DATA.robustness, pols = Object.keys(RPOL);
+    let winsMean = 0, winsTail = 0;
+    const rows = rob.worlds.map((w) => {
+      const r = rob.results[w];
+      const bestMean = Math.max(...pols.map((p) => r[p].mean)), bestTail = Math.max(...pols.map((p) => r[p].cvar95_profit));
+      if (r["Blockwise (Balanced)"].mean >= bestMean - 1e-6) winsMean++;
+      if (r["Blockwise (Balanced)"].cvar95_profit >= bestTail - 1e-6) winsTail++;
+      return `<tr><td>${esc(w)}</td>` + pols.map((p) => `<td class="n ${r[p].mean >= bestMean - 1e-6 ? "best" : ""}">${cr(r[p].mean, 2)}</td><td class="n ${r[p].cvar95_profit >= bestTail - 1e-6 ? "best" : ""}">${cr(r[p].cvar95_profit, 2)}</td>`).join("") + "</tr>";
+    });
+    $("rob").innerHTML = `<thead><tr><th rowspan="2">World</th>${pols.map((p) => `<th class="n" colspan="2">${esc(RPOL[p])}</th>`).join("")}</tr><tr>${pols.map(() => `<th class="n">Expected</th><th class="n">Bad case</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody>`;
+    $("rob-headline").innerHTML = `The Balanced plan was optimised for the base world only, then scored in seven worlds. It had the highest expected profit in <strong>${winsMean} of ${rob.worlds.length}</strong> and the best bad case (average of the worst 5% of futures) in <strong>${winsTail} of ${rob.worlds.length}</strong>. Bold marks the best in each world.`;
+    $("rob-note").textContent = `budget ${cr(rob.budget_inr, 1)} · 4,000 fresh futures per world`;
+  }
+
+  function renderAssumptions() {
+    const a = DATA.assumptions, t = a.terms;
+    const terms = [["Hard block rate", `−${100 * t.hard_discount}% vs reference, prepaid, non-refundable`], ["Allotment rate", `−${100 * t.soft_discount}% vs reference, pay only for rooms used`],
+      ["Buy as needed", `−${100 * t.dyn_discount}% vs market, only when the market isn't sold out`], ["Allotment hold cost", `${100 * t.soft_hold_cost}% of rate per allotted unit (utilisation penalty)`],
+      ["Turned-away booking", `costs ${100 * t.stockout_penalty}% of rate in goodwill`], ["Allotment release", `${t.release_days} days before arrival`],
+      ["Allotment size", a.soft_cap_rule], ["Region limit", `at most ${pct(a.region_share)} of prepaid budget in one region`],
+      ["Scenarios", `plan on ${a.n_plan}, score on ${a.n_eval} fresh (seeds ${a.plan_seed} / ${a.eval_seed})`]];
+    const prods = a.products.map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(p.region)}</td><td class="n">${num(p.base_weekly_units)}</td><td class="n">₹${num(p.price_inr)}</td><td class="n">${pct(p.early_share)}</td></tr>`).join("");
+    $("assumptions").innerHTML = `<div><h3>Contract terms</h3><table><tbody>${terms.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</tbody></table></div>
+      <div><h3>Shocks and test worlds</h3><table><tbody>${Object.values(SHOCKS).map((l) => `<tr><td>${esc(l)}</td></tr>`).join("")}${Object.keys(a.worlds).map((w) => `<tr><td>World: ${esc(w)}</td></tr>`).join("")}${a.events.map((e) => `<tr><td>Event: ${esc(e.name)} (+${Math.round(100 * (e.uplift - 1))}%)</td></tr>`).join("")}</tbody></table></div>
+      <div class="scroll"><h3>Synthetic products (base weekly volume, price, share booked 3+ weeks ahead)</h3><table><thead><tr><th>Product</th><th>Region</th><th class="n">Units/wk</th><th class="n">Price</th><th class="n">Early</th></tr></thead><tbody>${prods}</tbody></table></div>`;
+    $("gen-note").textContent = `Grid computed in ${Math.round(DATA.generated_seconds / 60)} min on a laptop CPU. Reference budget ${cr(DATA.b_star_inr, 1)} is what the unconstrained Max-profit plan would prepay.`;
+  }
+
+  function render() {
+    save();
+    renderControls(); renderKpis(); renderBuy(); renderFrontier(); renderDist(); renderExposure(); renderGaps();
+  }
+  render(); renderBacktest(); renderRobustness(); renderAssumptions();
+})();
+</script>
