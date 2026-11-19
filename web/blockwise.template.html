@@ -186,6 +186,7 @@ footer { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
     <div class="scroll"><table id="sg-table"></table></div>
     <div class="scroll"><table id="sg-cal"></table></div>
     <div class="scroll"><table id="sg-abl"></table></div>
+    <p class="note">Blockwise = Balanced plan. Best rule = the best of the six simple rules above (with and without the breaker) re-run under the same conditions.</p>
     <p class="note" id="sg-method"></p>
   </section>
 
@@ -558,7 +559,10 @@ const DATA = /*__RESULTS__*/null;
 
   // ---------- Singapore real-shock replay ----------
   const SGNAMES = { dynamic_only: "Buy as needed only", last_year_hard: "Block last year's volume", point_forecast_hard: "Block the median forecast",
-    allot_ly_block_p25: "Allot expected + block p25", "ours_0": "Blockwise · Max profit", "ours_0.25": "Blockwise · Balanced", "ours_1": "Blockwise · Careful", hindsight: "Perfect hindsight" };
+    allot_ly_block_p25: "Allot expected + block p25", last_year_hard_brk: "Block last year's volume + same breaker",
+    point_forecast_hard_brk: "Block the median forecast + same breaker", allot_ly_block_p25_brk: "Allot + block p25 + same breaker",
+    "ours_0": "Blockwise · Max profit", "ours_0.25": "Blockwise · Balanced", "ours_1": "Blockwise · Careful", hindsight: "Perfect hindsight" };
+  const SGRULES = ["last_year_hard", "point_forecast_hard", "allot_ly_block_p25", "last_year_hard_brk", "point_forecast_hard_brk", "allot_ly_block_p25_brk"];
   const sgd = (x) => x == null ? "–" : (x < 0 ? "−S$" : "S$") + (Math.abs(x) >= 1e6 ? (Math.abs(x) / 1e6).toFixed(2) + "M" : Math.round(Math.abs(x) / 1e3).toLocaleString("en-US") + "k");
   function monthChart(el, tl, series, opts) {
     const W = 1100, H = opts.h || 230, m = { l: 56, r: 16, t: 10, b: 26 };
@@ -602,39 +606,46 @@ const DATA = /*__RESULTS__*/null;
     const sg = DATA.singapore;
     if (!sg) { $("sg-panel").hidden = true; return; }
     const tl = sg.timeline, S = sg.summary, P = sg.by_period;
-    const ours = S["ours_0.25"], pf = S.point_forecast_hard, rule = S.allot_ly_block_p25, ly = S.last_year_hard;
+    const ours = S["ours_0.25"], maxp = S["ours_0"];
+    const rules = SGRULES.filter((p) => S[p]);
+    const bestRule = rules.reduce((a, b) => (S[b].pct_of_hindsight > S[a].pct_of_hindsight ? b : a), rules[0]);
     const cov = P["2020–21 COVID"] || {};
-    const months = tl.length;
-    $("sg-headline").innerHTML = `Every month from ${tl[0].target.slice(0, 7)} to ${tl[months - 1].target.slice(0, 7)} (${months} decisions), Blockwise committed inventory two months ahead using only the official statistics already published: real Indian arrivals, real room rates and real hotel occupancy. Over the whole period the Balanced plan earned <strong>${ours.pct_of_hindsight.toFixed(1)}%</strong> of perfect-hindsight profit; blocking the median forecast ${pf.pct_of_hindsight.toFixed(1)}%, the two-contract rule ${rule.pct_of_hindsight.toFixed(1)}%, last year's volume ${ly.pct_of_hindsight.toFixed(1)}%.` +
-      (cov["ours_0.25"] ? ` Through COVID (2020–21) it lost ${sgd(-cov["ours_0.25"].profit)} vs ${sgd(-cov.point_forecast_hard.profit)} for blocking the forecast.` : "") +
-      ((sg.breaker_months || []).length ? ` Its circuit breaker stopped prepaid blocks for ${sg.breaker_months.length} months (${sg.breaker_months[0].slice(0, 7)} to ${sg.breaker_months[sg.breaker_months.length - 1].slice(0, 7)}) while the forecast was more than 2× off.` : "");
+    const bestCovidRule = rules.reduce((a, b) => (cov[b] && cov[b].profit > cov[a].profit ? b : a), rules[0]);
+    const bestTailRule = rules.reduce((a, b) => (S[b].worst5_month_avg > S[a].worst5_month_avg ? b : a), rules[0]);
+    const months = tl.length, br = sg.assumptions.breaker_ratio;
+    $("sg-headline").innerHTML = `Every month from ${tl[0].target.slice(0, 7)} to ${tl[months - 1].target.slice(0, 7)} (${months} decisions), Blockwise committed inventory two months ahead using only the official statistics already published: real Indian arrivals, real room rates and real hotel occupancy. ` +
+      `<strong>Total profit:</strong> Max profit earned ${maxp.pct_of_hindsight.toFixed(1)}% of perfect hindsight and Balanced ${ours.pct_of_hindsight.toFixed(1)}%; the best simple rule (${esc(SGNAMES[bestRule])}) earned ${S[bestRule].pct_of_hindsight.toFixed(1)}%, so on total profit they are close. ` +
+      `<strong>Risk:</strong> through COVID Balanced lost ${sgd(-cov["ours_0.25"].profit)} vs ${sgd(-cov[bestCovidRule].profit)} for the best rule, and its worst 5% of months averaged ${sgd(ours.worst5_month_avg)} vs ${sgd(S[bestTailRule].worst5_month_avg)}.` +
+      ((sg.breaker_months || []).length ? ` The circuit breaker stopped prepaid blocks for ${sg.breaker_months.length} months (${sg.breaker_months[0].slice(0, 7)} to ${sg.breaker_months[sg.breaker_months.length - 1].slice(0, 7)}) while the forecast was more than ${br}× off; the table also gives every simple rule the identical breaker.` : "");
     const k = sg.timeline.map((r) => r.demand);
-    $("sg-legend-1").innerHTML = `<span><i style="background:var(--ink)"></i>Real demand (from official arrivals)</span><span><i style="background:var(--s1)"></i>Blockwise forecast, median and 10–90% band</span>`;
+    $("sg-legend-1").innerHTML = `<span><i style="background:var(--ink)"></i>Demand implied by official arrivals (room-nights, assumed 0.05 per arrival)</span><span><i style="background:var(--s1)"></i>Blockwise forecast, median and 10–90% band</span>`;
     monthChart($("sg-demand"), tl, [
       { lo: tl.map((r) => r.p10), hi: tl.map((r) => r.p90), color: "var(--s1)" },
       { ys: tl.map((r) => r.median), color: "var(--s1)", dash: true },
       { ys: k, color: "var(--ink)" },
-    ], { tip: (r) => `<b>${r.target.slice(0, 7)}</b><div class="row"><span>Real demand</span><span>${num(r.demand)}</span></div><div class="row"><span>Forecast median</span><span>${num(r.median)}</span></div><div class="row"><span>10–90% band</span><span>${num(r.p10)}–${num(r.p90)}</span></div><div class="note">hotel occupancy ${r.occ_all.toFixed(0)}% · rate S$${r.rate_all.toFixed(0)} · model ${esc(r.method)}</div>` });
-    $("sg-legend-2").innerHTML = `<span><i style="background:var(--s2)"></i>Prepaid hard blocks</span><span><i style="background:var(--s3)"></i>Free-release allotments</span><span><i style="background:var(--ink)"></i>Real demand</span><span><i style="background:var(--s2);opacity:0.25;height:10px"></i>Circuit breaker on: no prepaid blocks</span>`;
+    ], { tip: (r) => `<b>${r.target.slice(0, 7)}</b><div class="row"><span>Demand</span><span>${num(r.demand)}</span></div><div class="row"><span>Forecast median</span><span>${num(r.median)}</span></div><div class="row"><span>10–90% band</span><span>${num(r.p10)}–${num(r.p90)}</span></div><div class="note">hotel occupancy ${r.occ_all.toFixed(0)}% · rate S$${r.rate_all.toFixed(0)} · model ${esc(r.method)}</div>` });
+    $("sg-legend-2").innerHTML = `<span><i style="background:var(--s2)"></i>Prepaid hard blocks</span><span><i style="background:var(--s3)"></i>Free-release allotments</span><span><i style="background:var(--ink)"></i>Demand</span><span><i style="background:var(--s2);opacity:0.25;height:10px"></i>Circuit breaker on: no prepaid blocks</span>`;
     monthChart($("sg-commit"), tl, [
       { ys: tl.map((r) => r.ours_hard), area: true, color: "var(--s2)" },
       { ys: tl.map((r) => r.ours_soft), base: tl.map((r) => r.ours_hard), area: true, color: "var(--s3)" },
       { ys: k, color: "var(--ink)" },
-    ], { h: 200, breaker: true, tip: (r) => `<b>${r.target.slice(0, 7)} · Blockwise Balanced${r.breaker ? " · breaker on" : ""}</b><div class="row"><span>Hard blocks</span><span>${num(r.ours_hard)}</span></div><div class="row"><span>Allotments</span><span>${num(r.ours_soft)}</span></div><div class="row"><span>Real demand</span><span>${num(r.demand)}</span></div><div class="note">median-forecast rule would have blocked ${num(r.pf_hard)}${r.breaker ? ` · forecast recently off by ${r.error_ratio.toFixed(1)}×` : ""}</div>` });
-    const pols = ["dynamic_only", "last_year_hard", "point_forecast_hard", "allot_ly_block_p25", "ours_0", "ours_0.25", "ours_1"];
+    ], { h: 200, breaker: true, tip: (r) => `<b>${r.target.slice(0, 7)} · Blockwise Balanced${r.breaker ? " · breaker on" : ""}</b><div class="row"><span>Hard blocks</span><span>${num(r.ours_hard)}</span></div><div class="row"><span>Allotments</span><span>${num(r.ours_soft)}</span></div><div class="row"><span>Demand</span><span>${num(r.demand)}</span></div><div class="note">median-forecast rule would have blocked ${num(r.pf_hard)}${r.breaker ? ` · forecast recently off by ${r.error_ratio.toFixed(1)}×` : ""}</div>` });
+    const pols = ["dynamic_only", "last_year_hard", "point_forecast_hard", "allot_ly_block_p25", "last_year_hard_brk", "point_forecast_hard_brk", "allot_ly_block_p25_brk", "ours_0", "ours_0.25", "ours_1"];
     const pers = Object.keys(P);
-    $("sg-table").innerHTML = `<thead><tr><th>Policy · % of hindsight</th><th class="n">All</th>${pers.map((p) => `<th class="n">${esc(p)}</th>`).join("")}</tr></thead><tbody>` +
-      pols.filter((p) => S[p]).map((p) => `<tr class="${p === "ours_0.25" ? "mine" : ""}"><td>${esc(SGNAMES[p])}</td><td class="n">${S[p].pct_of_hindsight.toFixed(0)}%</td>${pers.map((q) => `<td class="n">${P[q][p] ? P[q][p].pct_of_hindsight.toFixed(0) + "%" : "–"}</td>`).join("")}</tr>`).join("") + "</tbody>";
+    $("sg-table").innerHTML = `<thead><tr><th>Policy</th><th class="n">% of hindsight, all</th><th class="n">COVID 2020–21</th><th class="n">Recovery 2022–23</th><th class="n">2011–19 %</th><th class="n">2024–26 %</th><th class="n">Worst-5% month</th></tr></thead><tbody>` +
+      pols.filter((p) => S[p]).map((p) => { const c = P["2020–21 COVID"] && P["2020–21 COVID"][p], r = P["2022–23 recovery"] && P["2022–23 recovery"][p], n = P["2011–19 normal"] && P["2011–19 normal"][p], z = P["2024–26 recent"] && P["2024–26 recent"][p];
+        return `<tr class="${p === "ours_0.25" ? "mine" : ""}"><td>${esc(SGNAMES[p])}</td><td class="n">${S[p].pct_of_hindsight.toFixed(1)}%</td><td class="n">${c ? sgd(c.profit) : "–"}</td><td class="n">${r ? sgd(r.profit) : "–"}</td><td class="n">${n ? n.pct_of_hindsight.toFixed(0) + "%" : "–"}</td><td class="n">${z ? z.pct_of_hindsight.toFixed(0) + "%" : "–"}</td><td class="n">${sgd(S[p].worst5_month_avg)}</td></tr>`; }).join("") + "</tbody>";
     const f = sg.forecast.headline || {};
     const st = sg.static_forecast;
     $("sg-cal").innerHTML = `<thead><tr><th>80% band held (target 80%)</th>${["all", ...pers].map((p) => `<th class="n">${esc(p === "all" ? "All" : p)}</th>`).join("")}</tr></thead><tbody>` +
       `<tr class="mine"><td>Adaptive calibration (Blockwise)</td>${["all", ...pers].map((p) => `<td class="n">${f[p] ? pct(f[p].coverage_80) : "–"}</td>`).join("")}</tr>` +
       (st ? `<tr><td>Static calibration (ablation)</td>${["all", ...pers].map((p) => `<td class="n">${st[p] ? pct(st[p].coverage_80) : "–"}</td>`).join("")}</tr>` : "") + "</tbody>";
     const abl = sg.ablations || [];
-    if (abl.length) $("sg-abl").innerHTML = `<thead><tr><th>What each part contributes (Blockwise · Balanced)</th><th class="n">% of hindsight, all months</th><th class="n">COVID 2020–21</th><th class="n">Recovery 2022–23</th><th class="n">2024–26 % of hindsight</th><th class="n">Worst-5% month</th></tr></thead><tbody>` +
-      abl.map((r) => `<tr class="${r.key === "headline" ? "mine" : ""}"><td>${esc(r.label)}</td><td class="n">${r.pct_of_hindsight == null ? "–" : r.pct_of_hindsight.toFixed(1) + "%"}</td><td class="n">${sgd(r.covid_profit)}</td><td class="n">${sgd(r.recovery_profit)}</td><td class="n">${r.recent_pct == null ? "–" : r.recent_pct.toFixed(1) + "%"}</td><td class="n">${sgd(r.worst5_month_avg)}</td></tr>`).join("") + "</tbody>";
+    const p1 = (x) => (x == null ? "–" : x.toFixed(1) + "%");
+    if (abl.length) $("sg-abl").innerHTML = `<thead><tr><th>Variant (full re-run each)</th><th class="n">Blockwise % of hindsight</th><th class="n">Best rule %</th><th class="n">COVID: Blockwise</th><th class="n">COVID: best rule</th><th class="n">Worst-5% month: Blockwise</th><th class="n">best rule</th></tr></thead><tbody>` +
+      abl.map((r) => `<tr class="${r.key === "headline" ? "mine" : ""}"><td>${esc(r.label)}</td><td class="n">${p1(r.pct_of_hindsight)}</td><td class="n">${p1(r.best_rule_pct)}</td><td class="n">${sgd(r.covid_profit)}</td><td class="n">${sgd(r.best_rule_covid)}</td><td class="n">${sgd(r.worst5_month_avg)}</td><td class="n">${sgd(r.best_rule_worst5)}</td></tr>`).join("") + "</tbody>";
     const a = sg.assumptions;
-    $("sg-method").textContent = `Real (SingStat, Singapore Open Data Licence): monthly visitor arrivals resident in India (M550001), average room rate and occupancy by hotel size band (M550081). Decisions at the start of each month use data published by then (through two months earlier) and commit for two months ahead. Assumed: demand = ${a.kappa} room-nights per Indian arrival split ${a.tier_share.map((x) => Math.round(100 * x) + "%").join("/")} across small/medium/large hotels (scaling it does not change the percentages); ${Math.round(100 * a.early_share)}% booked 3+ weeks ahead (from the real hotel bookings); buying as needed is possible below ${a.occ_free}% occupancy and impossible above ${a.occ_full}%; contract rates as in the main backtest. The forecast over-shot the 2022–23 recovery (dashed line above actual); the circuit breaker is what kept that error from turning into prepaid losses. Safeguards (added after the first replay exposed over-commitment through COVID; thresholds are round numbers and the result barely moves between 1.5× and 3×): no prepaid blocks while the forecast was more than ${a.breaker_ratio}× off in any of the last ${a.breaker_lookback} published months, and no forecast above ${a.support_mult}× the highest month ever published. Shares of hindsight are within each period; an empty or negative share means every rule lost money there.`;
+    $("sg-method").textContent = `Real (SingStat, Singapore Open Data Licence): monthly visitor arrivals resident in India (M550001), average room rate and occupancy by hotel size band (M550081). Decisions at the start of each month use data published by then (through two months earlier) and commit for two months ahead. Assumed: demand = ${a.kappa} room-nights per Indian arrival split ${a.tier_share.map((x) => Math.round(100 * x) + "%").join("/")} across small/medium/large hotels (scaling it does not change the percentages); ${Math.round(100 * a.early_share)}% booked 3+ weeks ahead (from the real hotel bookings); buying as needed is possible below ${a.occ_free}% occupancy and impossible above ${a.occ_full}%; contract rates as in the main backtest; one random draw drives arrivals, occupancy and rates together in planning scenarios (shocks hit all three). Uncertainty = exponentially weighted quantiles of past log forecast errors (half-life 6 months, inspired by weighted conformal prediction), calibrating only the band width around the model's own median. Changes made after seeing replay results, all disclosed: seasonal-level forecast instead of seasonal naive (which exploded in the recovery); the safeguards (no prepaid blocks while the forecast was more than ${a.breaker_ratio}× off in any of the last ${a.breaker_lookback} published months; forecast quantiles capped at ${a.support_mult}× the highest month ever published); width-only calibration. Rules marked "+ same breaker" get the identical breaker. SingStat data is the current revised release, not what was published at the time; Chronos-2 was pretrained in 2025, after many of the replayed months.`;
   }
 
   function render() {

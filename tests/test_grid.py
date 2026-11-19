@@ -139,3 +139,21 @@ def test_attach_singapore_builds_ablation_rows(tmp_path):
     assert rows["headline"]["pct_of_hindsight"] == 80 and rows["nosafeguards"]["covid_profit"] == -7.9e6
     assert "static" not in rows  # absent files are skipped
     assert "by_month" not in res["singapore"]
+
+
+def test_ablation_rows_carry_best_rule_under_same_conditions(tmp_path):
+    import json as _json
+    from invopt.grid import attach_singapore
+
+    S = {"ours_0.25": {"pct_of_hindsight": 79.0, "worst5_month_avg": -3e5},
+         "point_forecast_hard": {"pct_of_hindsight": 79.8, "worst5_month_avg": -4.3e5},
+         "point_forecast_hard_brk": {"pct_of_hindsight": 80.1, "worst5_month_avg": -3.7e5},
+         "dynamic_only": {"pct_of_hindsight": 18.0, "worst5_month_avg": -4e4},
+         "hindsight": {"pct_of_hindsight": 100.0, "worst5_month_avg": 0.0}}
+    per = {"2020–21 COVID": {"ours_0.25": {"profit": -2.6e6}, "point_forecast_hard": {"profit": -3.7e6},
+                             "point_forecast_hard_brk": {"profit": -3.1e6}, "dynamic_only": {"profit": 1.9e5}}}
+    (tmp_path / "singapore.json").write_text(_json.dumps({"summary": S, "by_period": per, "breaker_months": []}))
+    row = attach_singapore({}, tmp_path / "singapore.json")["singapore"]["ablations"][0]
+    # "buy as needed only" is not a commitment rule and hindsight is not a policy: neither counts as the best rule
+    assert row["best_rule"] == "point_forecast_hard_brk" and row["best_rule_pct"] == 80.1
+    assert row["best_rule_covid"] == -3.1e6 and row["best_rule_worst5"] == -3.7e5

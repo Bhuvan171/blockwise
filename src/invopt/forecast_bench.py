@@ -23,9 +23,12 @@ LABELS = {
 
 
 def _one(name: str) -> tuple[str, dict]:
-    import torch
+    try:  # optional stack: only Chronos-2 needs it
+        import torch
 
-    torch.set_num_threads(4)
+        torch.set_num_threads(4)
+    except ImportError:
+        pass
     from invopt.backtest import BacktestConfig, run_backtest
     from invopt.cli import DATA, OUT
     from invopt.config import ContractTerms

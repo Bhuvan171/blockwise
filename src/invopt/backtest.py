@@ -159,10 +159,16 @@ def planning_inputs(book: HotelBook, T: pd.Timestamp, nights: pd.DatetimeIndex, 
     buckets = (horizons - cfg.horizon_days) // 7
     train_nights = book.index[(book.index >= pd.Timestamp(cfg.train_from)) & (book.index < T)]
     y_train = book.panel["final"].reindex(train_nights).to_numpy()
+    notes: list[str] = []
+
     def run(name: str) -> np.ndarray:
         if name == "chronos2":
-            from invopt.chronos_fc import chronos2_quantiles
-            return chronos2_quantiles(book, T, nights, cfg)
+            from invopt import chronos_fc
+            try:
+                return chronos_fc.chronos2_quantiles(book, T, nights, cfg)
+            except Exception as e:  # noqa: BLE001 - a failed foundation-model call must not abort the backtest
+                notes.append(f"chronos2 failed for {book.hotel} at {T.date()} ({type(e).__name__}); used qr")
+                return run("qr")
         if name == "ensemble_conf":  # quantile averaging (Vincentization) of calibrated + foundation models
             return np.clip(np.sort(np.mean([run(m) for m in ENSEMBLE], axis=0), axis=1), 0.0, None)
         out = np.zeros((len(nights), len(QUANTILES)))
@@ -209,6 +215,7 @@ def planning_inputs(book: HotelBook, T: pd.Timestamp, nights: pd.DatetimeIndex, 
         q_soldout = np.where(near.sum(1) > 0, (near * sold[None, :]).sum(1) / np.maximum(near.sum(1), 1), 0.0)
 
     return {
+        "notes": notes,
         "features": feats,
         "quantiles": q,
         "candidates": candidates,

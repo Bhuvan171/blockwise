@@ -44,14 +44,14 @@ class SGConfig:
     occ_full: float = 95.0  # occupancy at or above which buying as needed is impossible
     methods: tuple[str, ...] = ("slevel_wc", "chronos2_wc")
     headline: str = "auto"  # pre-declared: pick the method with the lowest recent realised error
-    half_life: float = 6.0  # months, for weighted conformal
+    half_life: float = 6.0  # months, recency weighting of past forecast errors (width calibration)
     n_scen: int = 200
     seed: int = 11
     lambdas: tuple[float, ...] = (0.0, 0.25, 1.0)
-    # safeguards (design rules, fixed before the run that reports them)
+    # safeguards: added after the first replay exposed over-commitment through COVID (disclosed in the README)
     breaker_ratio: float | None = 2.0  # no prepaid blocks if the forecast was off by > 2x in any recent published month
     breaker_lookback: int = 3
-    support_mult: float = 1.5  # forecasts never exceed 1.5x the highest month ever published
+    support_mult: float | None = 1.5  # forecast quantiles never exceed 1.5x the highest month ever published
 
 
 def _months(cfg: SGConfig) -> pd.DatetimeIndex:
@@ -88,7 +88,8 @@ def decision_inputs(panel: pd.DataFrame, d: pd.Timestamp, cfg: SGConfig, history
             res = np.array([np.log(max(panel.at[h["target"], c], 1.0)) - np.log(max(h["median"], 1.0)) for h in past])
             ages = np.array([(L.year - h["target"].year) * 12 + (L.month - h["target"].month) for h in past], float)
             q = weighted_conformal(med[c], res, ages, cfg.half_life)
-            upper = 100.0 if c.startswith("occ_") else cfg.support_mult * float(hist[c].max())
+            upper = (100.0 if c.startswith("occ_") else
+                     cfg.support_mult * float(hist[c].max()) if cfg.support_mult is not None else np.inf)
             qs[c] = np.minimum(q, upper)  # physical plausibility: no market far beyond anything ever seen
         per_method[m] = {"median": med, "q": qs, "fallback": bool(med.get("_fallback", False))}
 
@@ -177,6 +178,11 @@ def run_sg(panel: pd.DataFrame, cfg: SGConfig | None = None, terms: ContractTerm
             "point_forecast_hard": Plan(hard=np.floor(med_d), soft=np.zeros(3)),
             "allot_ly_block_p25": Plan(hard=np.floor(cfg.kappa * shares * inp["arrivals_q"][i25]), soft=cap.copy()),
         }
+        # like-for-like: every rule also gets a twin with the same breaker (no prepaid blocks, allot up to the cap)
+        for base in ("last_year_hard", "point_forecast_hard", "allot_ly_block_p25"):
+            p0 = plans[base]
+            plans[base + "_brk"] = (Plan(hard=np.zeros(3), soft=cap.copy()) if inp["breaker"]
+                                    else Plan(hard=p0.hard.copy(), soft=p0.soft.copy()))
         hard_cap = np.zeros(3) if inp["breaker"] else None  # breaker: allotments and buy-as-needed only
         for lam in cfg.lambdas:
             res = optimize(plan_cells, terms, OptimizerParams(risk_aversion=lam, soft_cap=cap, hard_cap=hard_cap))
@@ -266,10 +272,13 @@ def _report(df: pd.DataFrame, fc: pd.DataFrame, timeline: list, notes: list, cfg
 NAMES = {"dynamic_only": "Buy as needed only", "last_year_hard": "Block last year's volume",
          "point_forecast_hard": "Block the median forecast",
          "allot_ly_block_p25": "Allot expected volume + block the 25th-percentile forecast",
+         "last_year_hard_brk": "Block last year's volume + same breaker",
+         "point_forecast_hard_brk": "Block the median forecast + same breaker",
+         "allot_ly_block_p25_brk": "Allot + block p25 + same breaker",
          "ours_0": "Blockwise · Max profit", "ours_0.25": "Blockwise · Balanced", "ours_1": "Blockwise · Careful",
          "hindsight": "Perfect hindsight"}
-ORDER = ["dynamic_only", "last_year_hard", "point_forecast_hard", "allot_ly_block_p25", "ours_0", "ours_0.25", "ours_1",
-         "hindsight"]
+ORDER = ["dynamic_only", "last_year_hard", "point_forecast_hard", "allot_ly_block_p25", "last_year_hard_brk",
+         "point_forecast_hard_brk", "allot_ly_block_p25_brk", "ours_0", "ours_0.25", "ours_1", "hindsight"]
 
 
 def to_markdown(rep: dict) -> str:

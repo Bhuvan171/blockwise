@@ -85,3 +85,40 @@ def test_no_hard_blocks_while_breaker_is_on(panel):
     on = [r for r in rep["timeline"] if r["breaker"]]
     assert on, "expected the breaker to trip during 2020"
     assert all(r["ours_hard"] == 0 for r in on)
+
+
+def test_rules_get_the_same_breaker(panel):
+    cfg = SGConfig(start="2020-03-01", end="2021-03-01", methods=("slevel_wc",), headline="slevel_wc", n_scen=60)
+    rep = run_sg(panel, cfg)
+    rows = pd.DataFrame(rep["by_month"])
+    on = {r["target"] for r in rep["timeline"] if r["breaker"]}
+    assert on
+    for base in ("last_year_hard", "point_forecast_hard", "allot_ly_block_p25"):
+        twin = rows[rows.policy == base + "_brk"].set_index("target")
+        orig = rows[rows.policy == base].set_index("target")
+        for t in twin.index:
+            if t in on:
+                assert twin.at[t, "hard"] == 0 and twin.at[t, "soft"] == pytest.approx(twin.at[t, "soft_cap"])
+            else:
+                assert twin.at[t, "hard"] == orig.at[t, "hard"] and twin.at[t, "soft"] == orig.at[t, "soft"]
+
+
+def test_support_cap_can_be_switched_off(panel):
+    cfg = SGConfig(start="2019-06-01", end="2019-08-01", methods=("slevel_wc",), headline="slevel_wc", n_scen=30,
+                   support_mult=None, breaker_ratio=None)
+    rep = run_sg(panel, cfg)
+    assert rep["assumptions"]["support_mult"] is None and not rep["breaker_months"]
+
+
+def test_no_lookahead_with_history_and_selection(panel):
+    """Decisions made before data is published must not change when that later data changes."""
+    cfg = SGConfig(start="2018-06-01", end="2020-04-01", methods=("slevel_wc", "snaive_wc"), headline="auto", n_scen=40)
+    alt = panel.astype(float)
+    late = alt.index >= pd.Timestamp("2020-03-01")
+    alt.loc[late, "india_arrivals"] *= 0.3
+    alt.loc[late, [c for c in alt.columns if c.startswith("occ_")]] = 99.0
+    a = pd.DataFrame(run_sg(panel, cfg)["by_month"])
+    b = pd.DataFrame(run_sg(alt, cfg)["by_month"])
+    keep = (pd.to_datetime(a.decision) <= pd.Timestamp("2020-04-01")) & (a.policy != "hindsight")
+    cols = ["decision", "policy", "hard", "soft", "soft_cap", "method"]
+    pd.testing.assert_frame_equal(a.loc[keep, cols].reset_index(drop=True), b.loc[keep, cols].reset_index(drop=True))

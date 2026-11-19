@@ -137,8 +137,12 @@ ABLATIONS = [  # (key, file suffix, label)
     ("br1.5", "_br1.5", "Same, breaker at 1.5x error"),
     ("br3", "_br3", "Same, breaker at 3x error"),
     ("static", "_static", "Static calibration (equal weights) + safeguards"),
-    ("nosafeguards", "_nosafeguards", "Adaptive calibration, no safeguards"),
+    ("nosafeguards", "_nosafeguards", "Adaptive calibration, no safeguards (no breaker, no cap)"),
+    ("occ75", "_occ75", "Same as headline, buy-as-needed cut-offs 75/90% occupancy"),
+    ("occ85", "_occ85", "Same as headline, buy-as-needed cut-offs 85/98% occupancy"),
 ]
+SG_RULES = ("last_year_hard", "point_forecast_hard", "allot_ly_block_p25",
+            "last_year_hard_brk", "point_forecast_hard_brk", "allot_ly_block_p25_brk")
 
 
 def attach_singapore(results: dict, singapore_path) -> dict:
@@ -156,7 +160,15 @@ def attach_singapore(results: dict, singapore_path) -> dict:
             continue
         r = json.loads(f.read_text())
         b, per = r.get("summary", {}).get("ours_0.25", {}), r.get("by_period", {})
+        summ = r.get("summary", {})
+        rules = [p for p in SG_RULES if summ.get(p, {}).get("pct_of_hindsight") is not None]
+        best = max(rules, key=lambda p: summ[p]["pct_of_hindsight"]) if rules else None
+        covid = per.get("2020–21 COVID", {})
+        covid_rules = [covid[p]["profit"] for p in rules if covid.get(p, {}).get("profit") is not None]
         rows.append({"key": key, "label": label, "pct_of_hindsight": b.get("pct_of_hindsight"),
+                     "best_rule": best, "best_rule_pct": summ[best]["pct_of_hindsight"] if best else None,
+                     "best_rule_covid": max(covid_rules) if covid_rules else None,
+                     "best_rule_worst5": max(summ[p].get("worst5_month_avg", -np.inf) for p in rules) if rules else None,
                      "worst5_month_avg": b.get("worst5_month_avg"),
                      "covid_profit": per.get("2020–21 COVID", {}).get("ours_0.25", {}).get("profit"),
                      "recovery_profit": per.get("2022–23 recovery", {}).get("ours_0.25", {}).get("profit"),

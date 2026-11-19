@@ -14,8 +14,8 @@ pytestmark = pytest.mark.skipif(not (A.exists() and H.exists()), reason="run scr
 
 def test_panel_shape_and_known_values():
     p = load_panel(A, H)
-    assert p.index[0] == pd.Timestamp("2008-01-01") and p.index[-1] == pd.Timestamp("2026-09-01")
-    assert len(p) == 225 and p.index.freqstr.startswith("MS")
+    assert p.index[0] == pd.Timestamp("2008-01-01") and p.index[-1] >= pd.Timestamp("2026-09-01")  # later fetches add months
+    assert len(p) >= 225 and p.index.freqstr.startswith("MS")
     assert p.loc["2019-05-01", "india_arrivals"] == 182727
     assert p.loc["2019-02-01", "india_arrivals"] == 88926
     for t in TIERS:

@@ -167,3 +167,20 @@ def test_auto_backtest_records_choices(bookings):
         assert set(b["forecaster"]) == {"City Hotel", "Resort Hotel"}
         assert all(v == "qr" for v in b["forecaster"].values())  # nothing realised yet in the first 2 rounds
     assert "candidates" in res.forecast_metrics
+
+
+def test_chronos_failure_falls_back_to_qr(bookings, short_cfg, monkeypatch):
+    from dataclasses import replace
+
+    import invopt.chronos_fc as cf
+
+    def boom(*a, **k):
+        raise FloatingPointError("simulated Chronos failure")
+    monkeypatch.setattr(cf, "chronos2_quantiles", boom)
+    nights = pd.date_range(T + pd.Timedelta(days=56), periods=28, freq="D")
+    book = HotelBook(bookings, "City Hotel", B2B_SEGMENTS, short_cfg.release_days)
+    K = capacity(book, T)
+    a = planning_inputs(book, T, nights, replace(short_cfg, forecaster="chronos2"), K)
+    b = planning_inputs(book, T, nights, short_cfg, K)
+    np.testing.assert_allclose(a["quantiles"], b["quantiles"])
+    assert a["notes"] and "chronos2" in a["notes"][0]

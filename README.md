@@ -73,41 +73,71 @@ Open the decision page: `out/blockwise_standalone.html`. It has budget, risk and
 
 Every month from Mar 2011 to Sep 2026 (187 decisions), Blockwise commits inventory **two months ahead** using **only the statistics already published that day** (data lags about 2 months). It is then scored against real demand, real rates and real occupancy. Occupancy decides whether buying as needed was possible.
 
-| Blockwise · Balanced vs simple rules | All months | 2020–21 COVID | 2022–23 recovery | 2024–26 | Worst-5% month (avg) |
-|---|---|---|---|---|---|
-| **Blockwise · Balanced** | **80.2% of hindsight** | **−S$2.54M** | **+S$4.50M, 0 losing months** | 88.5% | **−S$0.31M** |
-| Block last year's volume | 70.9% | −S$6.47M | +S$3.53M | 89.9% | −S$0.64M |
-| Allot + block p25 (two-contract rule) | 70.8% | −S$3.55M | +S$2.22M | 87.8% | −S$0.61M |
-| Block the median forecast | 59.6% | −S$4.05M | −S$3.36M (9 losing months) | 87.8% | −S$0.84M |
+**Result, plainly:**
+- **Total profit: a tie with the best simple rule.** Max profit earned 81.1% of hindsight and Balanced 79.3%. The best simple rule (block the median forecast, given the same breaker) earned 80.1%, and 79.8% without the breaker. It uses Blockwise's own median forecast, so it is a strong baseline.
+- **Downside: Blockwise is better.**
+  - Through COVID, Balanced lost S$2.56M vs S$3.07M for the best rule, 17% less.
+  - Its worst 5% of months averaged a loss of S$0.31M vs S$0.37M.
+- **The risk dial works.** From Max profit to Careful, Blockwise gives up 4.2 points of total profit and cuts the COVID loss from S$2.77M to S$2.42M.
+- **The most valuable safeguard is simple.** Stopping prepaid buying while the forecast is badly wrong cut the COVID loss of "block last year's volume" from S$6.47M to S$3.37M. Blockwise has the breaker built in, and any rule can adopt it.
 
-**What each part contributes (ablations, same data):**
+| Policy | All months, % of hindsight | 2020–21 COVID | 2022–23 recovery | 2011–19 | 2024–26 | Worst-5% month (avg) |
+|---|---|---|---|---|---|---|
+| **Blockwise · Max profit** | 81.1% | −S$2.77M | +S$4.20M | 94% | 92% | −S$0.34M |
+| **Blockwise · Balanced** | 79.3% | −S$2.56M | +S$3.94M | 91% | 90% | −S$0.31M |
+| **Blockwise · Careful** | 76.9% | −S$2.42M | +S$3.57M | 89% | 89% | −S$0.30M |
+| Block the median forecast + same breaker | 80.1% | −S$3.14M | +S$4.47M | 93% | 90% | −S$0.37M |
+| Block last year's volume + same breaker | 79.1% | −S$3.37M | +S$4.23M | 93% | 90% | −S$0.40M |
+| Allot + block p25 + same breaker | 76.6% | −S$3.07M | +S$4.18M | 89% | 88% | −S$0.37M |
+| Block the median forecast (no breaker) | 79.8% | −S$3.72M | +S$4.93M | 93% | 90% | −S$0.43M |
+| Allot + block p25 (no breaker) | 76.5% | −S$3.55M | +S$4.64M | 89% | 88% | −S$0.42M |
+| Block last year's volume (no breaker) | 70.9% | −S$6.47M | +S$3.53M | 93% | 90% | −S$0.64M |
+| Buy as needed only | 18.3% | +S$0.19M | +S$1.39M | 16% | 21% | −S$0.04M |
 
-| Variant | All months | COVID | Recovery | 2024–26 |
+**Ablations and sensitivity:** each row is a full re-run, and the best rule is re-run under the same conditions.
+
+| Variant (full re-run each) | Blockwise · Balanced | Best rule, same conditions | COVID: Blockwise / best rule | Worst-5% month: Blockwise / best rule |
 |---|---|---|---|---|
-| Adaptive calibration + safeguards (headline) | 80.2% | −S$2.54M | +S$4.50M | 88.5% |
-| … breaker at 1.5× / 3× error | 81.2% / 80.4% | −S$1.99M / −S$2.54M | +S$4.42M / +S$4.61M | 88.5% / 88.5% |
-| Static calibration (equal weights) + safeguards | 74.1% | −S$2.55M | +S$4.08M | **67.1%** (remembers COVID forever, under-commits) |
-| Adaptive calibration, **no safeguards** | **47.7%** | −S$7.86M | −S$5.66M | 90.8% |
+| Blockwise: adaptive calibration + safeguards (headline) | 79.3% | 80.1% | −S$2.56M / −S$3.07M | −S$0.31M / −S$0.37M |
+| Same, breaker at 1.5x error | 80.4% | 81.6% | −S$1.99M / −S$2.26M | −S$0.25M / −S$0.28M |
+| Same, breaker at 3x error | 79.3% | 80.5% | −S$2.56M / −S$3.07M | −S$0.31M / −S$0.37M |
+| Static calibration (equal weights) + safeguards | 73.9% | 80.5% | −S$2.52M / −S$3.10M | −S$0.31M / −S$0.37M |
+| Adaptive calibration, no safeguards (no breaker, no cap) | 74.7% | 79.8% | −S$6.14M / −S$3.55M | −S$0.71M / −S$0.42M |
+| Same as headline, buy-as-needed cut-offs 75/90% occupancy | 79.1% | 79.7% | −S$2.57M / −S$3.08M | −S$0.32M / −S$0.37M |
+| Same as headline, buy-as-needed cut-offs 85/98% occupancy | 79.3% | 80.1% | −S$2.56M / −S$3.07M | −S$0.31M / −S$0.37M |
 
-- **Adaptive calibration** is weighted, non-exchangeable split conformal (Barber, Candès, Ramdas & Tibshirani, 2023) on log forecast errors, with a half-life of 6 months. Uncertainty widens within months of a shock and narrows again once things calm down.
+- **Adaptive calibration:**
+  - Exponentially weighted empirical quantiles of past log forecast errors (half-life 6 months). This is *inspired by* weighted conformal prediction (Barber, Candès, Ramdas & Tibshirani, 2023), but without its finite-sample correction, so there is no coverage guarantee.
+  - It calibrates only the **width** of the band around the model's own median.
+  - 80% bands held 78% of the time overall (static: 71%). In COVID they held 54% (static: 4%). In 2024–26 they held 91%.
+  - Static calibration remembers COVID forever and under-commits afterwards: 2024–26 falls to 66.8% of hindsight.
+- **Point forecast:** seasonal level (mean of the last 3 de-seasonalised months × the target month's seasonal factor), or Chronos-2 zero-shot, picked each month by realised error. The split was seasonal level 102 months, Chronos-2 85 months.
 - **Safeguards:**
-  - a **circuit breaker**: no prepaid blocks while the forecast was more than 2× off in any of the last 3 published months (allotments and buy-as-needed only);
-  - forecasts are capped at 1.5× the highest month ever published.
-  The breaker was on for 33 months (Jul 2020 – Mar 2023).
-- **Disclosure:**
-  - The safeguards were added **after** the first replay exposed over-commitment through COVID. The thresholds are round numbers, and the result barely moves between 1.5× and 3×.
-  - In calm years, simple rules do as well as Blockwise (2011–19: 91.4% vs 93.1% for last year's volume). **Blockwise's edge is surviving regime change.**
+  - a **circuit breaker**: no prepaid blocks while the forecast was more than 2× off in any of the last 3 published months (allotments and buy-as-needed only). It was on for 33 months (2020-07 to 2023-03);
+  - forecast quantiles capped at 1.5× the highest month ever published.
+- **Disclosure: changes made after seeing replay results.**
+  1. Seasonal level replaced seasonal naive, which exploded in the recovery by multiplying a COVID-depressed base by a huge trend.
+  2. The safeguards were added after the first replay exposed over-commitment through COVID. The thresholds are round numbers and the result barely moves between 1.5× and 3×.
+  3. After an independent review, calibration became **width-only**. Previously past bias also shifted the median, which over-forecast the recovery about 3× and made "block the median forecast" an unfair strawman.
+  4. "+ same breaker" baselines were added so the comparison is like-for-like.
+
+  Without any safeguards, Balanced earns 74.7% vs 79.8% for the best rule. **Blockwise without the breaker loses to simple rules here.**
+- **Other limits:**
+  - One shock in one market. In calm years simple rules do as well (2011–19: Balanced 91.4%, best rule up to 93.1%).
+  - SingStat serves today's revised figures, not what was published at the time.
+  - Chronos-2 was pretrained in 2025, so its weights may encode the period being replayed.
+  - In planning scenarios, one random draw drives arrivals, occupancy and rates together (a shock hits all three).
 - **Assumptions:**
   - demand = 0.05 room-nights per Indian arrival, split 35/40/25% across small/medium/large hotels (percentages don't depend on the scale);
   - 85% of demand booked 3+ weeks ahead (from the real hotel bookings);
-  - buying as needed is possible below 80% occupancy and impossible above 95%;
-  - contract rates as above.
+  - buying as needed is possible below 80% occupancy and impossible above 95% (75/90 and 85/98 tested above);
+  - contract rates as in §1.
 - **Licence:** contains information from SingStat Table Builder (tables M550001 and M550081), accessed on 19 Nov 2026, made available under the Singapore Open Data Licence.
 
 ### 4. Forecaster benchmark (real bookings, same backtest for every forecaster)
 | Forecaster | Blockwise · Balanced % of hindsight (90% range) | Typical error (WAPE) | 80% / 90% band holds |
 |---|---|---|---|
-| **Ensemble: calibrated linear + calibrated gradient-boosted (booking pace) + Chronos-2** | **89.9% (87–92)** | **21.8%** | **82% / 92%** |
+| Ensemble: calibrated linear + calibrated gradient-boosted (booking pace) + Chronos-2 | 89.9% (87–92) | **21.8%** | **82% / 92%** |
 | Linear quantile regression (Round 1 model) | 88.8% (85–91) | 23.2% | 74% / 84% |
 | Gradient-boosted quantiles + booking pace + conformal | 88.6% (85–91) | 27.1% | 72% / 85% |
 | Auto: lowest realised error so far (**pre-declared headline**) | 88.0% (85–90) | 24.8% | 77% / 86% |
@@ -115,9 +145,10 @@ Every month from Mar 2011 to Sep 2026 (187 decisions), Blockwise commits invento
 | Linear + conformal | 86.0% (82–89) | 28.9% | 66% / 74% |
 
 - **Honest reading:**
+  - The profit ranges overlap (ensemble 87–92 vs linear 85–91), so the profit difference is within noise. The accuracy and calibration differences are clearer.
   - The foundation model on its own isn't the best, because its bands are too wide. It adds value **inside the ensemble**, which wins on every accuracy metric and is the only well-calibrated model.
   - Conformal recalibration of a single model *hurt* here: its calibration window holds the latest nights, which sit in a different season from the nights being forecast.
-  - The pre-declared online selector had only 15 rounds to learn from. City Hotel stayed on the linear model; Resort Hotel moved to the ensemble from round 9.
+  - The pre-declared online selector had only 15 rounds to learn from. City Hotel stayed on the linear model. Resort Hotel switched between models: linear in rounds 1–3 and 8–9, gradient-boosted in 4–5, and the ensemble in 6–7 and from round 10.
 - The headline table in §1 keeps the Round 1 forecaster, which was fixed before this benchmark.
 
 ## How it works

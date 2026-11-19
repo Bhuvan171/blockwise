@@ -120,8 +120,12 @@ def cmd_singapore(args) -> None:
     if not (a.exists() and h.exists()):
         raise SystemExit("Missing SingStat files: run scripts/fetch_singstat.sh first")
     t0 = time.perf_counter()
-    br = None if str(args.breaker_ratio).lower() == "none" else float(args.breaker_ratio)
-    rep = run_sg(load_panel(a, h), SGConfig(half_life=args.half_life, breaker_ratio=br), terms_from_args(args))
+    def opt(v):
+        return None if str(v).lower() == "none" else float(v)
+
+    cfg = SGConfig(half_life=args.half_life, breaker_ratio=opt(args.breaker_ratio), support_mult=opt(args.support_mult),
+                   occ_free=args.occ_free, occ_full=args.occ_full)
+    rep = run_sg(load_panel(a, h), cfg, terms_from_args(args))
     OUT.mkdir(exist_ok=True)
     (OUT / f"singapore{args.tag}.json").write_text(json.dumps(rep, allow_nan=False, default=str))
     md = to_markdown(rep)
@@ -163,6 +167,10 @@ def build_parser() -> argparse.ArgumentParser:
     sg.add_argument("--tag", default="", help="suffix for output files, e.g. _static")
     sg.add_argument("--breaker-ratio", default="2.0",
                     help="stop prepaid blocks when the forecast was off by more than this factor recently ('none' = off)")
+    sg.add_argument("--support-mult", default="1.5",
+                    help="cap forecast quantiles at this x the highest month ever published ('none' = off)")
+    sg.add_argument("--occ-free", type=float, default=80.0, help="occupancy at or below which buying as needed always works")
+    sg.add_argument("--occ-full", type=float, default=95.0, help="occupancy at or above which buying as needed is impossible")
     _add_terms_flags(sg)
     sg.set_defaults(func=cmd_singapore)
     p = sub.add_parser("page", help="render out/blockwise*.html from out/results.json")

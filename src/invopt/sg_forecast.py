@@ -4,11 +4,12 @@ Point forecasts (4 months beyond the last published month):
   snaive   same month last year x recent year-on-year trend, in log space (floors at 1)
   chronos2 Chronos-2 zero-shot median (Amazon, Apache-2.0)
 
-Uncertainty: weighted (non-exchangeable) split conformal on log residuals.
-Barber, Candes, Ramdas & Tibshirani (2023), "Conformal prediction beyond exchangeability":
-recent forecast errors get exponentially more weight (half-life in months), so intervals
-widen within months of a shock (COVID) and tighten again in calm periods. The method is
-scale-free, so a 99.9% collapse does not need hundreds of small update steps.
+Uncertainty: exponentially weighted empirical quantiles of past log forecast errors, inspired
+by weighted conformal prediction (Barber, Candes, Ramdas & Tibshirani, 2023) but without its
+finite-sample correction. Recent errors get more weight (half-life in months), so the band
+widens within months of a shock (COVID) and narrows again in calm periods; it is scale-free.
+Only the WIDTH is calibrated: the error distribution is re-centred on its weighted median, so
+the point forecast stays the model's own and past bias cannot inflate the level.
 """
 from __future__ import annotations
 
@@ -69,13 +70,14 @@ def _weighted_quantile(values: np.ndarray, weights: np.ndarray, q: float) -> flo
 
 
 def weighted_conformal(median: float, residuals: np.ndarray, ages: np.ndarray, half_life: float = 6.0) -> np.ndarray:
-    """Quantiles = median x exp(weighted quantile of past log residuals); prior spread if too few."""
+    """Quantiles = median x exp(weighted quantile of re-centred past log residuals); prior spread if too few."""
     median = max(float(median), 1e-9)
     residuals = np.asarray(residuals, float)
     if len(residuals) < MIN_RESIDUALS:
         return median * np.exp(PRIOR_LOG)
     w = 0.5 ** (np.asarray(ages, float) / half_life)
     q = np.array([_weighted_quantile(residuals, w, t) for t in QS])
+    q = q - q[list(QS).index(0.5)]  # width only: the 50% quantile stays the point forecast
     return np.sort(median * np.exp(q))
 
 
@@ -88,4 +90,7 @@ def chronos_monthly_medians(hist: pd.DataFrame, cols: list[str], steps: int) -> 
     pred = _pipe().predict_df(pd.concat(frames, ignore_index=True), prediction_length=steps,
                               quantile_levels=[0.5], id_column="item_id")
     last = pred.sort_values("timestamp").groupby("item_id").tail(1).set_index("item_id")["0.5"]
-    return {c: max(float(last[c]), 1e-9) for c in cols}
+    vals = {c: float(last[c]) for c in cols}
+    if not all(np.isfinite(v) for v in vals.values()):
+        raise FloatingPointError("Chronos-2 returned a non-finite median")  # caller falls back to seasonal level
+    return {c: max(v, 1e-9) for c, v in vals.items()}

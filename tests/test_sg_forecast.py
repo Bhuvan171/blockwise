@@ -87,3 +87,11 @@ def test_seasonal_level_tracks_seasonality_in_normal_times():
     L = y.index[70]
     t = L + pd.DateOffset(months=4)
     assert abs(slevel_median(y[y.index <= L], t) / y.loc[t] - 1) < 0.05
+
+
+def test_calibration_sets_width_not_level():
+    # residuals all strongly positive (the model under-forecast a ramp): the median must stay the point forecast
+    res = np.full(30, 1.0) + np.linspace(-0.2, 0.2, 30)
+    q = weighted_conformal(100.0, res, np.arange(30, dtype=float), half_life=6)
+    assert q[QUANTILES.index(0.5)] == pytest.approx(100.0)
+    assert q[0] < 100.0 < q[-1]  # still a spread around it
