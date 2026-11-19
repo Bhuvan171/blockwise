@@ -94,3 +94,28 @@ def test_reference_solve_failure_aborts(monkeypatch):
     with pytest.raises(RuntimeError, match="reference"):
         g.run_grid(budget_fracs=(1.0,), risk_levels={"Max profit": 0.0}, n_plan=10, n_eval=20, weeks=1, workers=1,
                    backtest_path=None)
+
+
+def test_singapore_section_copied_without_monthly_rows(tmp_path):
+    import json as _json
+    sg = {"summary": {"ours_0.25": {"pct_of_hindsight": 90.0}}, "by_period": {}, "forecast": {}, "timeline": [],
+          "assumptions": {}, "methods_used": {}, "notes": [], "by_month": [{"x": 1}] * 50}
+    p = tmp_path / "singapore.json"
+    p.write_text(_json.dumps(sg))
+    res = run_grid(budget_fracs=(1.0,), risk_levels={"Max profit": 0.0}, n_plan=10, n_eval=30, weeks=1, workers=1,
+                   backtest_path=None, singapore_path=p)
+    assert res["singapore"]["summary"]["ours_0.25"]["pct_of_hindsight"] == 90.0
+    assert "by_month" not in res["singapore"]
+
+
+def test_singapore_static_ablation_attached(tmp_path):
+    import json as _json
+    base = {"summary": {}, "by_period": {}, "forecast": {"headline": {"all": {"coverage_80": 0.8}}}, "timeline": [],
+            "assumptions": {}, "methods_used": {}, "notes": [], "by_month": []}
+    static = dict(base, forecast={"headline": {"all": {"coverage_80": 0.5}}}, summary={"ours_0.25": {"x": 1}})
+    (tmp_path / "singapore.json").write_text(_json.dumps(base))
+    (tmp_path / "singapore_static.json").write_text(_json.dumps(static))
+    res = run_grid(budget_fracs=(1.0,), risk_levels={"Max profit": 0.0}, n_plan=10, n_eval=30, weeks=1, workers=1,
+                   backtest_path=None, singapore_path=tmp_path / "singapore.json")
+    assert res["singapore"]["static_forecast"]["all"]["coverage_80"] == 0.5
+    assert res["singapore"]["static_summary"]["ours_0.25"]["x"] == 1

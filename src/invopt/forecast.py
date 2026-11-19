@@ -73,6 +73,106 @@ class QuantileForecaster:
         return np.ones(len(X))
 
 
+QuantileForecaster.feature_set = "base"
+
+
+class GBMQuantileForecaster:
+    """Gradient-boosted trees, one model per quantile (sklearn HistGradientBoosting, quantile loss).
+
+    Captures non-linear booking-pace effects that the linear model can't (e.g. pickup that
+    depends on both rooms on the books and how far ahead the night is).
+    """
+
+    feature_set = "pace"
+
+    def __init__(self, max_iter: int = 250, learning_rate: float = 0.05, max_leaf_nodes: int = 15,
+                 min_samples_leaf: int = 20, l2_regularization: float = 1.0, random_state: int = 0):
+        self.params = dict(max_iter=max_iter, learning_rate=learning_rate, max_leaf_nodes=max_leaf_nodes,
+                           min_samples_leaf=min_samples_leaf, l2_regularization=l2_regularization,
+                           random_state=random_state)
+        self.models = None
+        self.fallback: QuantileForecaster | None = None
+        self.columns: list[str] | None = None
+
+    def fit(self, X: pd.DataFrame, y: np.ndarray) -> "GBMQuantileForecaster":
+        from sklearn.ensemble import HistGradientBoostingRegressor
+
+        X = pd.DataFrame(X)
+        y = np.asarray(y, dtype=float)
+        self.columns = list(X.columns)
+        if len(y) < MIN_ROWS:
+            self.fallback = QuantileForecaster().fit(X, y)
+            self.models = None
+            return self
+        self.models = [HistGradientBoostingRegressor(loss="quantile", quantile=q, **self.params).fit(X.to_numpy(), y)
+                       for q in QUANTILES]
+        self.fallback = None
+        return self
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        X = pd.DataFrame(X)[self.columns]
+        if self.models is None:
+            return self.fallback.predict(X)
+        q = np.column_stack([m.predict(X.to_numpy()) for m in self.models])
+        return np.clip(np.sort(q, axis=1), 0.0, None)
+
+
+class ConformalWrapper:
+    """Rolling split-conformal calibration of every quantile level.
+
+    Fit the base model on the earlier rows, measure on the latest `cal_frac` rows how far
+    reality fell from each predicted quantile, shift each quantile by the matching
+    empirical quantile of those residuals, then refit the base on all rows. Rows must be in
+    time order (they are: one row per past night). Outputs stay sorted and non-negative.
+    """
+
+    def __init__(self, base_factory, cal_frac: float = 0.25, min_cal: int = 30):
+        self.base_factory = base_factory
+        self.cal_frac = cal_frac
+        self.min_cal = min_cal
+        self.feature_set = getattr(base_factory(), "feature_set", "base")
+        self.shift = np.zeros(len(QUANTILES))
+        self.base = None
+
+    def _split(self, n: int) -> tuple[slice, slice]:
+        n_cal = int(round(n * self.cal_frac))
+        return slice(0, n - n_cal), slice(n - n_cal, n)
+
+    def fit(self, X: pd.DataFrame, y: np.ndarray) -> "ConformalWrapper":
+        X = pd.DataFrame(X)
+        y = np.asarray(y, dtype=float)
+        tr, cal = self._split(len(y))
+        self.shift = np.zeros(len(QUANTILES))
+        if cal.stop - cal.start >= self.min_cal and tr.stop >= self.min_cal:
+            q_cal = self.base_factory().fit(X.iloc[tr], y[tr]).predict(X.iloc[cal])
+            resid = y[cal][:, None] - q_cal
+            n = len(resid)
+            # finite-sample corrected level per quantile, clipped to the observed range
+            levels = np.clip(np.ceil((n + 1) * np.asarray(QUANTILES)) / n, 0.0, 1.0)
+            self.shift = np.array([np.quantile(resid[:, j], levels[j]) for j in range(len(QUANTILES))])
+        self.base = self.base_factory().fit(X, y)
+        return self
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        q = self.base.predict(X) + self.shift[None, :]
+        return np.clip(np.sort(q, axis=1), 0.0, None)
+
+
+_REGISTRY = {
+    "qr": lambda: QuantileForecaster(),
+    "gbm": lambda: GBMQuantileForecaster(),
+    "qr_conf": lambda: ConformalWrapper(QuantileForecaster),
+    "gbm_conf": lambda: ConformalWrapper(GBMQuantileForecaster),
+}
+FORECASTERS = tuple(_REGISTRY)
+
+
+def make_forecaster(name: str):
+    if name not in _REGISTRY:
+        raise ValueError(f"unknown forecaster {name!r}; choose from {sorted(_REGISTRY)}")
+    return _REGISTRY[name]()
+
+
 def pinball_loss(y: np.ndarray, q: np.ndarray) -> float:
     y = np.asarray(y, dtype=float)[:, None]
     taus = np.asarray(QUANTILES)[None, :]

@@ -134,7 +134,9 @@ def _scale_hard(hard: np.ndarray, hard_cost: np.ndarray, budget: float) -> np.nd
 
 def run_grid(budget_fracs=(0.25, 0.5, 0.75, 1.0, 1.25), risk_levels: dict[str, float] | None = None,
              n_plan: int = 150, n_eval: int = 4000, weeks: int = 13, workers: int = 2,
-             backtest_path: str | Path | None = "out/backtest.json", terms: ContractTerms | None = None) -> dict:
+             backtest_path: str | Path | None = "out/backtest.json", terms: ContractTerms | None = None,
+             singapore_path: str | Path | None = "out/singapore.json",
+             bench_path: str | Path | None = "out/forecast_bench.json") -> dict:
     t0 = time.perf_counter()
     terms = (terms or ContractTerms()).validate()
     risk_levels = dict(risk_levels or RISK_LEVELS)
@@ -235,8 +237,25 @@ def run_grid(budget_fracs=(0.25, 0.5, 0.75, 1.0, 1.25), risk_levels: dict[str, f
                 backtest.setdefault("sensitivity", {})[extra.removeprefix("backtest_").removesuffix(".json")] = \
                     json.loads(p.read_text())["summary"]
 
+    singapore = None
+    if singapore_path is not None and Path(singapore_path).exists():
+        sg = json.loads(Path(singapore_path).read_text())
+        singapore = {k: v for k, v in sg.items() if k != "by_month"}  # monthly rows stay in out/singapore.json
+        static_path = Path(singapore_path).with_name(Path(singapore_path).stem + "_static.json")
+        if static_path.exists():  # ablation: same replay with equal-weight (non-adaptive) calibration
+            st = json.loads(static_path.read_text())
+            singapore["static_forecast"] = st["forecast"].get("headline")
+            singapore["static_summary"] = st["summary"]
+            singapore["static_by_period"] = st.get("by_period")
+    bench = None
+    if bench_path is not None and Path(bench_path).exists():
+        b = json.loads(Path(bench_path).read_text())
+        bench = {"headline": b["headline"], "rows": b["rows"]}
+
     payload = {
         "generated_seconds": time.perf_counter() - t0,
+        "singapore": singapore,
+        "forecast_bench": bench,
         "currency": "INR",
         "b_star_inr": b_star,
         "budgets_inr": budgets,

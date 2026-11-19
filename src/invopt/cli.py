@@ -39,7 +39,8 @@ def cmd_backtest(args) -> None:
     t0 = time.perf_counter()
     bookings, _ = load_bookings(DATA)
     cap = None if args.soft_cap_mult.lower() == "none" else float(args.soft_cap_mult)
-    cfg = BacktestConfig(budget_share=args.budget_share, soft_cap_mult=cap, soldout_tau=args.soldout_tau)
+    cfg = BacktestConfig(budget_share=args.budget_share, soft_cap_mult=cap, soldout_tau=args.soldout_tau,
+                         forecaster=getattr(args, "forecaster", "qr"))
     res = run_backtest(bookings, cfg, terms_from_args(args))
     OUT.mkdir(exist_ok=True)
     suffix = args.tag or ""
@@ -89,6 +90,37 @@ def cmd_all(args) -> None:
     cmd_page(args)
 
 
+def cmd_bench(args) -> None:
+    from invopt.forecast_bench import run_bench
+
+    t0 = time.perf_counter()
+    res = run_bench([n.strip() for n in args.forecasters.split(",") if n.strip()], workers=args.workers, out_dir=OUT)
+    print(res["markdown"])
+    print(f"done in {time.perf_counter() - t0:.0f}s")
+
+
+def cmd_singapore(args) -> None:
+    import json
+
+    from invopt.sg_backtest import SGConfig, run_sg, to_markdown
+    from invopt.sg_data import load_panel
+
+    a, h = ROOT / "data/raw/singstat_M550001.json", ROOT / "data/raw/singstat_M550081.json"
+    if not (a.exists() and h.exists()):
+        raise SystemExit("Missing SingStat files: run scripts/fetch_singstat.sh first")
+    t0 = time.perf_counter()
+    rep = run_sg(load_panel(a, h), SGConfig(half_life=args.half_life), terms_from_args(args))
+    OUT.mkdir(exist_ok=True)
+    (OUT / f"singapore{args.tag}.json").write_text(json.dumps(rep, allow_nan=False, default=str))
+    md = to_markdown(rep)
+    (OUT / f"singapore{args.tag}.md").write_text(md + "\n")
+    print(md)
+    print("methods used (Balanced):", rep["methods_used"], "| notes:", rep["notes"][:5])
+    for m, f in rep["forecast"].items():
+        print(m, {k: (round(v["coverage_80"], 2), round(v["wape"], 3)) for k, v in f.items()})
+    print(f"done in {time.perf_counter() - t0:.0f}s")
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="invopt")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -100,6 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--soldout-tau", type=float, default=0.98,
                    help="a night counts as sold out when occupancy >= tau x estimated capacity")
     b.add_argument("--tag", default="", help="suffix for output files, e.g. _uncapped")
+    b.add_argument("--forecaster", default="qr", help="qr | qr_conf | gbm | gbm_conf | chronos2 | ensemble_conf | auto")
     _add_terms_flags(b)
     b.set_defaults(func=cmd_backtest)
     g = sub.add_parser("grid", help="plans for every budget x risk level on the synthetic portfolio")
@@ -108,6 +141,16 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--workers", type=int, default=2)
     _add_terms_flags(g)
     g.set_defaults(func=cmd_grid)
+    fb = sub.add_parser("bench", help="forecaster benchmark: accuracy + profit in the real-bookings backtest")
+    fb.add_argument("--forecasters", default="qr,qr_conf,gbm_conf,chronos2,ensemble_conf,auto")
+    fb.add_argument("--workers", type=int, default=3)
+    fb.set_defaults(func=cmd_bench)
+    sg = sub.add_parser("singapore", help="real-shock replay on official SingStat data, 2011-2026")
+    sg.add_argument("--half-life", type=float, default=6.0,
+                    help="months; weighting of past errors in calibration (1e9 = static, equal weights)")
+    sg.add_argument("--tag", default="", help="suffix for output files, e.g. _static")
+    _add_terms_flags(sg)
+    sg.set_defaults(func=cmd_singapore)
     p = sub.add_parser("page", help="render out/blockwise*.html from out/results.json")
     p.set_defaults(func=cmd_page)
     a = sub.add_parser("all", help="backtest, grid, then page (headline settings)")

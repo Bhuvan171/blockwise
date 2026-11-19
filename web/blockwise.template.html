@@ -164,11 +164,30 @@ footer { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
         <p class="note" id="bt-forecast"></p>
       </div>
     </div>
+    <details id="bench-wrap" hidden>
+      <summary>Which forecaster? Benchmarked on accuracy and on profit</summary>
+      <div class="scroll"><table id="bench"></table></div>
+      <p class="note" id="bench-note"></p>
+    </details>
     <details>
       <summary>Sensitivity: does the result depend on our assumptions?</summary>
       <div class="scroll"><table id="bt-sens"></table></div>
     </details>
     <p class="note" id="bt-method"></p>
+  </section>
+
+  <section class="panel" aria-labelledby="h-sg" id="sg-panel">
+    <div class="head"><h2 id="h-sg">Real-shock replay: Indian travellers to Singapore, 2011–2026</h2><span class="tag real">Official data · SGD</span></div>
+    <p class="headline" id="sg-headline"></p>
+    <div class="legend" id="sg-legend-1"></div>
+    <div class="chart" id="sg-demand" role="img" aria-label="Real monthly demand vs Blockwise forecast band, 2011 to 2026"></div>
+    <div class="legend" id="sg-legend-2"></div>
+    <div class="chart" id="sg-commit" role="img" aria-label="Blockwise monthly commitments: prepaid blocks and free-release allotments"></div>
+    <div class="grid2">
+      <div class="scroll"><table id="sg-table"></table></div>
+      <div class="scroll"><table id="sg-cal"></table></div>
+    </div>
+    <p class="note" id="sg-method"></p>
   </section>
 
   <section class="panel" aria-labelledby="h-rob">
@@ -526,12 +545,99 @@ const DATA = /*__RESULTS__*/null;
     $("gen-note").textContent = `Grid computed in ${Math.round(DATA.generated_seconds / 60)} min on a laptop CPU. Reference budget ${cr(DATA.b_star_inr, 1)} is what the unconstrained Max-profit plan would prepay.`;
   }
 
+  // ---------- forecaster benchmark ----------
+  function renderBench() {
+    const b = DATA.forecast_bench;
+    if (!b || !b.rows || !b.rows.length) return;
+    $("bench-wrap").hidden = false;
+    $("bench").innerHTML = `<thead><tr><th>Forecaster</th><th class="n">Blockwise · Balanced, % of hindsight</th><th class="n">Typical error (WAPE)</th><th class="n">Pinball loss</th><th class="n">80% band holds</th><th class="n">90% band holds</th></tr></thead><tbody>` +
+      b.rows.map((r) => `<tr class="${r.forecaster === b.headline ? "mine" : ""}"><td>${esc(r.label)}${r.forecaster === b.headline ? " · <em>pre-declared headline</em>" : ""}</td>
+        <td class="n">${r.pct_of_hindsight.toFixed(1)}% (${r.pct_ci_lo.toFixed(0)}–${r.pct_ci_hi.toFixed(0)})</td><td class="n">${pct(r.wape, 1)}</td><td class="n">${r.pinball.toFixed(2)}</td>
+        <td class="n">${pct(r.coverage_80)}</td><td class="n">${r.coverage_90 == null ? "–" : pct(r.coverage_90)}</td></tr>`).join("") + "</tbody>";
+    $("bench-note").textContent = "Every forecaster drives the same real-bookings backtest (same rounds, rules and random draws). The headline was fixed before running: 'auto' picks, each round, the model with the lowest error on nights that had already happened.";
+  }
+
+  // ---------- Singapore real-shock replay ----------
+  const SGNAMES = { dynamic_only: "Buy as needed only", last_year_hard: "Block last year's volume", point_forecast_hard: "Block the median forecast",
+    allot_ly_block_p25: "Allot expected + block p25", "ours_0": "Blockwise · Max profit", "ours_0.25": "Blockwise · Balanced", "ours_1": "Blockwise · Careful", hindsight: "Perfect hindsight" };
+  const sgd = (x) => x == null ? "–" : (x < 0 ? "−S$" : "S$") + (Math.abs(x) >= 1e6 ? (Math.abs(x) / 1e6).toFixed(2) + "M" : Math.round(Math.abs(x) / 1e3).toLocaleString("en-US") + "k");
+  function monthChart(el, tl, series, opts) {
+    const W = 1100, H = opts.h || 230, m = { l: 56, r: 16, t: 10, b: 26 };
+    const n = tl.length, X = (i) => m.l + (i / Math.max(1, n - 1)) * (W - m.l - m.r);
+    const ymax = Math.max(1, ...series.flatMap((se) => se.ys ? se.ys : [...se.lo, ...se.hi]));
+    const yt = niceTicks(0, ymax, 4), Y = (v) => H - m.b - v / yt[yt.length - 1] * (H - m.t - m.b);
+    let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
+    const c0 = tl.findIndex((r) => r.target >= "2020-02"), c1 = tl.findIndex((r) => r.target >= "2022-01");
+    if (c0 >= 0 && c1 > c0) s += `<rect x="${X(c0)}" y="${m.t}" width="${X(c1) - X(c0)}" height="${H - m.t - m.b}" style="fill:var(--grid)" opacity="0.6"/><text x="${X(c0) + 6}" y="${m.t + 12}" font-size="11" style="fill:var(--ink-2)">COVID</text>`;
+    yt.forEach((t) => { s += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(t)}" y2="${Y(t)}" style="stroke:var(--grid)"/><text x="${m.l - 6}" y="${Y(t) + 4}" text-anchor="end" font-size="11" style="fill:var(--muted)">${num(t)}</text>`; });
+    tl.forEach((r, i) => { if (r.target.endsWith("-01-01") && (+r.target.slice(0, 4)) % 2 === 1) s += `<text x="${X(i)}" y="${H - 6}" text-anchor="middle" font-size="11" style="fill:var(--muted)">${r.target.slice(0, 4)}</text>`; });
+    series.forEach((se) => {
+      if (se.lo) {
+        const up = se.hi.map((v, i) => `${X(i)},${Y(v)}`).join(" "), dn = se.lo.map((v, i) => `${X(i)},${Y(v)}`).reverse().join(" ");
+        s += `<polygon points="${up} ${dn}" style="fill:${se.color}" fill-opacity="0.16"/>`;
+      } else if (se.area) {
+        const base = se.base || se.ys.map(() => 0);
+        const up = se.ys.map((v, i) => `${X(i)},${Y(v + base[i])}`).join(" "), dn = base.map((v, i) => `${X(i)},${Y(v)}`).reverse().join(" ");
+        s += `<polygon points="${up} ${dn}" style="fill:${se.color}" fill-opacity="0.75"/>`;
+      } else {
+        s += `<polyline points="${se.ys.map((v, i) => `${X(i)},${Y(v)}`).join(" ")}" fill="none" style="stroke:${se.color}" stroke-width="2" ${se.dash ? 'stroke-dasharray="5 4"' : ""} stroke-linejoin="round"/>`;
+      }
+    });
+    s += `<line class="xh" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" style="stroke:var(--ink-2)" stroke-dasharray="3 3" visibility="hidden"/>`;
+    s += `<rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent" class="hit"/></svg>`;
+    el.innerHTML = s;
+    const svg = el.querySelector("svg"), hit = svg.querySelector(".hit"), xh = svg.querySelector(".xh");
+    hit.addEventListener("mousemove", (e) => {
+      const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+      const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+      const i = Math.max(0, Math.min(n - 1, Math.round((p.x - m.l) / (W - m.l - m.r) * (n - 1))));
+      xh.setAttribute("x1", X(i)); xh.setAttribute("x2", X(i)); xh.setAttribute("visibility", "visible");
+      const rect = el.getBoundingClientRect();
+      tipAt(el, opts.tip(tl[i]), e.clientX - rect.left, e.clientY - rect.top);
+    });
+    hit.addEventListener("mouseleave", () => { xh.setAttribute("visibility", "hidden"); hideTip(el); });
+  }
+  function renderSingapore() {
+    const sg = DATA.singapore;
+    if (!sg) { $("sg-panel").hidden = true; return; }
+    const tl = sg.timeline, S = sg.summary, P = sg.by_period;
+    const ours = S["ours_0.25"], pf = S.point_forecast_hard, rule = S.allot_ly_block_p25, ly = S.last_year_hard;
+    const cov = P["2020–21 COVID"] || {};
+    const months = tl.length;
+    $("sg-headline").innerHTML = `Every month from ${tl[0].target.slice(0, 7)} to ${tl[months - 1].target.slice(0, 7)} (${months} decisions), Blockwise committed inventory two months ahead using only the official statistics already published: real Indian arrivals, real room rates and real hotel occupancy. Over the whole period the Balanced plan earned <strong>${ours.pct_of_hindsight.toFixed(1)}%</strong> of perfect-hindsight profit; blocking the median forecast ${pf.pct_of_hindsight.toFixed(1)}%, the two-contract rule ${rule.pct_of_hindsight.toFixed(1)}%, last year's volume ${ly.pct_of_hindsight.toFixed(1)}%.` +
+      (cov["ours_0.25"] ? ` Through COVID (2020–21) its worst month was ${sgd(cov["ours_0.25"].worst_month)} vs ${sgd(cov.point_forecast_hard.worst_month)} for blocking the forecast.` : "");
+    const k = sg.timeline.map((r) => r.demand);
+    $("sg-legend-1").innerHTML = `<span><i style="background:var(--ink)"></i>Real demand (from official arrivals)</span><span><i style="background:var(--s1)"></i>Blockwise forecast, median and 10–90% band</span>`;
+    monthChart($("sg-demand"), tl, [
+      { lo: tl.map((r) => r.p10), hi: tl.map((r) => r.p90), color: "var(--s1)" },
+      { ys: tl.map((r) => r.median), color: "var(--s1)", dash: true },
+      { ys: k, color: "var(--ink)" },
+    ], { tip: (r) => `<b>${r.target.slice(0, 7)}</b><div class="row"><span>Real demand</span><span>${num(r.demand)}</span></div><div class="row"><span>Forecast median</span><span>${num(r.median)}</span></div><div class="row"><span>10–90% band</span><span>${num(r.p10)}–${num(r.p90)}</span></div><div class="note">hotel occupancy ${r.occ_all.toFixed(0)}% · rate S$${r.rate_all.toFixed(0)} · model ${esc(r.method)}</div>` });
+    $("sg-legend-2").innerHTML = `<span><i style="background:var(--s2)"></i>Prepaid hard blocks</span><span><i style="background:var(--s3)"></i>Free-release allotments</span><span><i style="background:var(--ink)"></i>Real demand</span>`;
+    monthChart($("sg-commit"), tl, [
+      { ys: tl.map((r) => r.ours_hard), area: true, color: "var(--s2)" },
+      { ys: tl.map((r) => r.ours_soft), base: tl.map((r) => r.ours_hard), area: true, color: "var(--s3)" },
+      { ys: k, color: "var(--ink)" },
+    ], { h: 200, tip: (r) => `<b>${r.target.slice(0, 7)} · Blockwise Balanced</b><div class="row"><span>Hard blocks</span><span>${num(r.ours_hard)}</span></div><div class="row"><span>Allotments</span><span>${num(r.ours_soft)}</span></div><div class="row"><span>Real demand</span><span>${num(r.demand)}</span></div><div class="note">median-forecast rule would have blocked ${num(r.pf_hard)}</div>` });
+    const pols = ["dynamic_only", "last_year_hard", "point_forecast_hard", "allot_ly_block_p25", "ours_0", "ours_0.25", "ours_1"];
+    const pers = Object.keys(P);
+    $("sg-table").innerHTML = `<thead><tr><th>Policy · % of hindsight</th><th class="n">All</th>${pers.map((p) => `<th class="n">${esc(p)}</th>`).join("")}</tr></thead><tbody>` +
+      pols.filter((p) => S[p]).map((p) => `<tr class="${p === "ours_0.25" ? "mine" : ""}"><td>${esc(SGNAMES[p])}</td><td class="n">${S[p].pct_of_hindsight.toFixed(0)}%</td>${pers.map((q) => `<td class="n">${P[q][p] ? P[q][p].pct_of_hindsight.toFixed(0) + "%" : "–"}</td>`).join("")}</tr>`).join("") + "</tbody>";
+    const f = sg.forecast.headline || {};
+    const st = sg.static_forecast;
+    $("sg-cal").innerHTML = `<thead><tr><th>80% band held (target 80%)</th>${["all", ...pers].map((p) => `<th class="n">${esc(p === "all" ? "All" : p)}</th>`).join("")}</tr></thead><tbody>` +
+      `<tr class="mine"><td>Adaptive calibration (Blockwise)</td>${["all", ...pers].map((p) => `<td class="n">${f[p] ? pct(f[p].coverage_80) : "–"}</td>`).join("")}</tr>` +
+      (st ? `<tr><td>Static calibration (ablation)</td>${["all", ...pers].map((p) => `<td class="n">${st[p] ? pct(st[p].coverage_80) : "–"}</td>`).join("")}</tr>` : "") + "</tbody>";
+    const a = sg.assumptions;
+    $("sg-method").textContent = `Real (SingStat, Singapore Open Data Licence): monthly visitor arrivals resident in India (M550001), average room rate and occupancy by hotel size band (M550081). Decisions at the start of each month use data published by then (through two months earlier) and commit for two months ahead. Assumed: demand = ${a.kappa} room-nights per Indian arrival split ${a.tier_share.map((x) => Math.round(100 * x) + "%").join("/")} across small/medium/large hotels (scaling it does not change the percentages); ${Math.round(100 * a.early_share)}% booked 3+ weeks ahead (from the real hotel bookings); buying as needed is possible below ${a.occ_free}% occupancy and impossible above ${a.occ_full}%; contract rates as in the main backtest. Shares of hindsight are within each period; an empty or negative share means every rule lost money there.`;
+  }
+
   function render() {
     save();
     renderControls(); renderKpis(); renderBuy(); renderFrontier(); renderDist(); renderExposure(); renderGaps();
   }
   render();
-  for (const section of [renderBacktest, renderRobustness, renderAssumptions]) {
+  for (const section of [renderBacktest, renderBench, renderSingapore, renderRobustness, renderAssumptions]) {
     try { section(); } catch (e) { console.error("section failed to render:", section.name, e); }  // one bad section must not blank the rest
   }
 })();

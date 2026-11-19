@@ -122,3 +122,48 @@ def test_hindsight_failure_aborts(bookings, short_cfg, monkeypatch):
     monkeypatch.setattr(bt, "optimize", flaky)
     with pytest.raises(RuntimeError, match="hindsight"):
         run_backtest(bookings, short_cfg, ContractTerms())
+
+
+@pytest.mark.parametrize("fc", ["gbm_conf", "qr_conf"])
+def test_no_lookahead_new_forecasters(bookings, short_cfg, fc):
+    from dataclasses import replace
+    cfg = replace(short_cfg, forecaster=fc)
+    nights = pd.date_range(T + pd.Timedelta(days=56), periods=28, freq="D")
+    outs = []
+    for bk in (bookings, _alter_after(bookings, T)):
+        book = HotelBook(bk, "City Hotel", B2B_SEGMENTS, cfg.release_days)
+        outs.append(planning_inputs(book, T, nights, cfg, capacity(book, T)))
+    np.testing.assert_allclose(outs[0]["quantiles"], outs[1]["quantiles"])
+
+
+def test_backtest_accepts_forecaster(bookings, short_cfg):
+    from dataclasses import replace
+    nights = pd.date_range(T + pd.Timedelta(days=56), periods=28, freq="D")
+    book = HotelBook(bookings, "City Hotel", B2B_SEGMENTS, short_cfg.release_days)
+    K = capacity(book, T)
+    q_qr = planning_inputs(book, T, nights, short_cfg, K)["quantiles"]
+    q_gbm = planning_inputs(book, T, nights, replace(short_cfg, forecaster="gbm_conf"), K)["quantiles"]
+    assert q_gbm.shape == q_qr.shape and not np.allclose(q_gbm, q_qr)
+    assert np.all(np.diff(q_gbm, axis=1) >= -1e-9)
+
+
+def test_selector_uses_only_realised_history():
+    from invopt.backtest import _select_forecaster
+    t = pd.Timestamp("2017-01-01")
+    hist = [
+        {"available_from": t - pd.Timedelta(days=10), "name": "gbm_conf", "pinball": 1.0},
+        {"available_from": t - pd.Timedelta(days=10), "name": "qr", "pinball": 2.0},
+        {"available_from": t + pd.Timedelta(days=1), "name": "qr", "pinball": 0.1},  # not realised yet
+    ]
+    assert _select_forecaster(hist, t, default="qr") == "gbm_conf"
+    assert _select_forecaster([], t, default="qr") == "qr"
+    assert _select_forecaster(hist[2:], t, default="qr") == "qr"
+
+
+def test_auto_backtest_records_choices(bookings):
+    cfg = BacktestConfig(start="2016-07-04", end="2016-08-28", n_scen=30, lambdas=(0.0,), seed=3, forecaster="auto")
+    res = run_backtest(bookings, cfg, ContractTerms())
+    for b in res.meta["batches"]:
+        assert set(b["forecaster"]) == {"City Hotel", "Resort Hotel"}
+        assert all(v == "qr" for v in b["forecaster"].values())  # nothing realised yet in the first 2 rounds
+    assert "candidates" in res.forecast_metrics

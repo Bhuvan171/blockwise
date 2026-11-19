@@ -21,7 +21,7 @@ import pandas as pd
 
 from invopt.config import ContractTerms
 from invopt.economics import Cells, Plan, evaluate
-from invopt.forecast import QUANTILES, QuantileForecaster, build_features, coverage, pinball_loss, wape
+from invopt.forecast import QUANTILES, build_features, coverage, make_forecaster, pinball_loss, wape
 from invopt.hotel_data import B2B_SEGMENTS, expand_nights
 from invopt.optimizer import OptimizerParams, optimize
 from invopt.scenarios import DEFAULT_RHOS, correlated_uniforms, estimate_rhos, sample_from_quantiles
@@ -47,6 +47,7 @@ class BacktestConfig:
     hotels: tuple[str, ...] = ("City Hotel", "Resort Hotel")
     train_from: str = "2015-07-15"  # skip the first nights: stays from arrivals before 1 Jul 2015 are missing
     soldout_window_days: int = 14
+    forecaster: str = "qr"  # qr | qr_conf | gbm | gbm_conf | chronos2 | ensemble_conf | auto
 
 
 class HotelBook:
@@ -99,7 +100,12 @@ def capacity(book: HotelBook, before: pd.Timestamp) -> float:
     return float(np.quantile(occ, 0.99))
 
 
-def _training_frame(book: HotelBook, train_nights: pd.DatetimeIndex, h: int) -> pd.DataFrame:
+ENSEMBLE = ("qr_conf", "gbm_conf", "chronos2")
+AUTO_POOL = ("qr", "qr_conf", "gbm_conf", "chronos2", "ensemble_conf")  # ensemble_conf must come after its members
+PACE = ["oh_m7", "oh_m14", "ly_oh"]  # booking pace: rooms on the books 1 and 2 weeks earlier, and last year at the same lead
+
+
+def _training_frame(book: HotelBook, train_nights: pd.DatetimeIndex, h: int, pace: bool = False) -> pd.DataFrame:
     """Same features as `build_features`, for past nights as if decided h days ahead."""
     final = book.panel["final"]
     asof = train_nights - pd.Timedelta(days=h)
@@ -117,7 +123,22 @@ def _training_frame(book: HotelBook, train_nights: pd.DatetimeIndex, h: int) -> 
         out[f"dow_{i}"] = (dow == i).astype(float)
     angle = 2 * np.pi * (train_nights.day_of_year.to_numpy() - 1) / 365.25
     out["woy_sin"], out["woy_cos"] = np.sin(angle), np.cos(angle)
+    if pace:
+        out["oh_m7"] = book.on_hand_at_horizon(h + 7).reindex(train_nights).fillna(0.0).to_numpy()
+        out["oh_m14"] = book.on_hand_at_horizon(h + 14).reindex(train_nights).fillna(0.0).to_numpy()
+        ly_n = train_nights - pd.Timedelta(days=364)
+        out["ly_oh"] = book.on_hand_at_horizon(h).reindex(ly_n).fillna(0.0).to_numpy()
     return out
+
+
+def _target_pace(book: HotelBook, T: pd.Timestamp, nights: pd.DatetimeIndex) -> pd.DataFrame:
+    """Pace features for target nights, using only bookings known by T."""
+    d = pd.Timedelta(days=1)
+    return pd.DataFrame({
+        "oh_m7": book.on_hand(T - 7 * d).reindex(nights).fillna(0.0).to_numpy(),
+        "oh_m14": book.on_hand(T - 14 * d).reindex(nights).fillna(0.0).to_numpy(),
+        "ly_oh": book.on_hand(T - 364 * d).reindex(nights - 364 * d).fillna(0.0).to_numpy(),
+    }, index=nights)
 
 
 def _circular_doy_distance(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -138,12 +159,31 @@ def planning_inputs(book: HotelBook, T: pd.Timestamp, nights: pd.DatetimeIndex, 
     buckets = (horizons - cfg.horizon_days) // 7
     train_nights = book.index[(book.index >= pd.Timestamp(cfg.train_from)) & (book.index < T)]
     y_train = book.panel["final"].reindex(train_nights).to_numpy()
-    q = np.zeros((len(nights), len(QUANTILES)))
-    for b in np.unique(buckets):
-        h = int(cfg.horizon_days + 7 * b + 3)
-        model = QuantileForecaster().fit(_training_frame(book, train_nights, h), y_train)
-        sel = buckets == b
-        q[sel] = model.predict(feats.loc[sel])
+    def run(name: str) -> np.ndarray:
+        if name == "chronos2":
+            from invopt.chronos_fc import chronos2_quantiles
+            return chronos2_quantiles(book, T, nights, cfg)
+        if name == "ensemble_conf":  # quantile averaging (Vincentization) of calibrated + foundation models
+            return np.clip(np.sort(np.mean([run(m) for m in ENSEMBLE], axis=0), axis=1), 0.0, None)
+        out = np.zeros((len(nights), len(QUANTILES)))
+        pace = make_forecaster(name).feature_set == "pace"
+        X_target = pd.concat([feats, _target_pace(book, T, nights)], axis=1) if pace else feats
+        for b in np.unique(buckets):
+            h = int(cfg.horizon_days + 7 * b + 3)
+            model = make_forecaster(name).fit(_training_frame(book, train_nights, h, pace), y_train)
+            sel = buckets == b
+            out[sel] = model.predict(X_target.loc[sel])
+        return out
+
+    candidates = None
+    if cfg.forecaster == "auto":
+        candidates = {}
+        for name in AUTO_POOL:
+            candidates[name] = (np.clip(np.sort(np.mean([candidates[m] for m in ENSEMBLE], axis=0), axis=1), 0.0, None)
+                                if name == "ensemble_conf" else run(name))
+        q = candidates["qr"]  # run_backtest replaces this with the selected candidate
+    else:
+        q = run(cfg.forecaster)
 
     # share of demand booked before the allotment release date, by day of week
     by_dow = hist.groupby(hist.index.day_of_week)[["early_final", "final"]].sum()
@@ -171,12 +211,22 @@ def planning_inputs(book: HotelBook, T: pd.Timestamp, nights: pd.DatetimeIndex, 
     return {
         "features": feats,
         "quantiles": q,
+        "candidates": candidates,
         "early_share": early_share,
         "ref_rate": ref,
         "q_soldout": q_soldout,
         "ly_final": feats["ly_final"].to_numpy(),
         "on_hand": feats["on_hand"].to_numpy(),
     }
+
+
+def _select_forecaster(history: list[dict], T: pd.Timestamp, default: str = "qr") -> str:
+    """Lowest mean pinball loss over forecasts whose nights had all happened by T (leak-free)."""
+    seen = [r for r in history if r["available_from"] <= T]
+    if not seen:
+        return default
+    scores = pd.DataFrame(seen).groupby("name")["pinball"].mean()
+    return str(scores.idxmin())
 
 
 def _pit(q: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -243,13 +293,28 @@ def run_backtest(bookings: pd.DataFrame, cfg: BacktestConfig, terms: ContractTer
     rows: list[dict] = []
     fc_rows: list[pd.DataFrame] = []
     batch_meta: list[dict] = []
+    fc_hist: dict[str, list[dict]] = {h: [] for h in cfg.hotels}
+    cand_rows: list[pd.DataFrame] = []
     for k, T in enumerate(dates):
         nights = pd.date_range(T + horizon, periods=n_nights, freq="D")
         parts = []
+        chosen: dict[str, str] = {}
         for hi, h in enumerate(cfg.hotels):
             inp = planning_inputs(books[h], T, nights, cfg, K[h])
+            if inp["candidates"] is not None:
+                chosen[h] = _select_forecaster(fc_hist[h], T, default="qr")
+                inp["quantiles"] = inp["candidates"][chosen[h]]
+            else:
+                chosen[h] = cfg.forecaster
             real = books[h].panel.reindex(nights)
             parts.append((hi, h, inp, real))
+            if inp["candidates"] is not None:  # score every candidate once these nights have happened
+                y_h = real["final"].fillna(0).to_numpy()
+                for name, qc in inp["candidates"].items():
+                    fc_hist[h].append({"available_from": nights[-1] + pd.Timedelta(days=1), "name": name,
+                                       "pinball": pinball_loss(y_h, qc)})
+                    cand_rows.append(pd.DataFrame({"name": name, "hotel": h, "y": y_h, "ly": inp["ly_final"],
+                                                   **{f"q{t}": qc[:, i] for i, t in enumerate(QUANTILES)}}))
         group = np.concatenate([hi * cfg.batch_weeks + np.arange(n_nights) // 7 for hi, *_ in parts])
         hotel_of = np.concatenate([np.full(n_nights, h) for _, h, _, _ in parts])
         q = np.vstack([p[2]["quantiles"] for p in parts])
@@ -330,14 +395,19 @@ def run_backtest(bookings: pd.DataFrame, cfg: BacktestConfig, terms: ContractTer
         fc_rows.append(pd.DataFrame({"hotel": hotel_of, "night": nights.tolist() * len(cfg.hotels), "y": fin, "ly": ly,
                                      **{f"q{t}": q[:, i] for i, t in enumerate(QUANTILES)}}))
         batch_meta.append({"decision_date": str(T.date()), "first_night": str(nights[0].date()),
-                           "rho_common": rc, "rho_group": rg, "statuses": statuses})
+                           "rho_common": rc, "rho_group": rg, "statuses": statuses, "forecaster": chosen})
 
     by_batch = pd.DataFrame(rows)
     summary = _summarise(by_batch)
     fc = pd.concat(fc_rows, ignore_index=True)
     meta = {"config": {k: (list(v) if isinstance(v, tuple) else v) for k, v in asdict(cfg).items()},
             "terms": terms.as_dict(), "capacity": K, "batches": batch_meta, "currency": "EUR"}
-    return BacktestResult(by_batch=by_batch, summary=summary, forecast_metrics=_forecast_metrics(fc), meta=meta)
+    fm = _forecast_metrics(fc)
+    if cand_rows:
+        cr = pd.concat(cand_rows, ignore_index=True)
+        fm["candidates"] = {name: _forecast_metrics(d)["all"] for name, d in cr.groupby("name")}
+    meta["forecaster"] = cfg.forecaster
+    return BacktestResult(by_batch=by_batch, summary=summary, forecast_metrics=fm, meta=meta)
 
 
 def _summarise(by_batch: pd.DataFrame) -> pd.DataFrame:
@@ -374,5 +444,7 @@ def _forecast_metrics(fc: pd.DataFrame) -> dict:
             "wape_last_year": wape(y, d["ly"].to_numpy()),
             "pinball": pinball_loss(y, q),
             "coverage_80": coverage(y, q),
+            "coverage_90": coverage(y, q, lo=0.05, hi=0.95),
+            "width_80_rel": float((q[:, QUANTILES.index(0.9)] - q[:, QUANTILES.index(0.1)]).mean() / max(y.mean(), 1e-9)),
         }
     return out
