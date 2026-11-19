@@ -76,9 +76,20 @@ def cmd_grid(args) -> None:
 def cmd_page(args) -> None:
     from invopt.page import build_page
 
+    import json
+
+    from invopt.grid import attach_singapore
+
     src = OUT / "results.json"
     if not src.exists():
         raise SystemExit("Missing out/results.json: run `python -m invopt.cli grid` first")
+    # refresh the sections that come from their own runs (cheap) without recomputing every plan
+    data = json.loads(src.read_text())
+    attach_singapore(data, OUT / "singapore.json")
+    if (OUT / "forecast_bench.json").exists():
+        b = json.loads((OUT / "forecast_bench.json").read_text())
+        data["forecast_bench"] = {"headline": b["headline"], "rows": b["rows"]}
+    src.write_text(json.dumps(data, allow_nan=False, separators=(",", ":")))
     a = build_page(src, OUT / "blockwise.html")
     b = build_page(src, OUT / "blockwise_standalone.html", standalone=True)
     print(f"wrote {a} ({a.stat().st_size / 1e6:.2f} MB, artifact content) and {b} (open in a browser)")
@@ -109,7 +120,8 @@ def cmd_singapore(args) -> None:
     if not (a.exists() and h.exists()):
         raise SystemExit("Missing SingStat files: run scripts/fetch_singstat.sh first")
     t0 = time.perf_counter()
-    rep = run_sg(load_panel(a, h), SGConfig(half_life=args.half_life), terms_from_args(args))
+    br = None if str(args.breaker_ratio).lower() == "none" else float(args.breaker_ratio)
+    rep = run_sg(load_panel(a, h), SGConfig(half_life=args.half_life, breaker_ratio=br), terms_from_args(args))
     OUT.mkdir(exist_ok=True)
     (OUT / f"singapore{args.tag}.json").write_text(json.dumps(rep, allow_nan=False, default=str))
     md = to_markdown(rep)
@@ -149,6 +161,8 @@ def build_parser() -> argparse.ArgumentParser:
     sg.add_argument("--half-life", type=float, default=6.0,
                     help="months; weighting of past errors in calibration (1e9 = static, equal weights)")
     sg.add_argument("--tag", default="", help="suffix for output files, e.g. _static")
+    sg.add_argument("--breaker-ratio", default="2.0",
+                    help="stop prepaid blocks when the forecast was off by more than this factor recently ('none' = off)")
     _add_terms_flags(sg)
     sg.set_defaults(func=cmd_singapore)
     p = sub.add_parser("page", help="render out/blockwise*.html from out/results.json")

@@ -119,3 +119,23 @@ def test_singapore_static_ablation_attached(tmp_path):
                    backtest_path=None, singapore_path=tmp_path / "singapore.json")
     assert res["singapore"]["static_forecast"]["all"]["coverage_80"] == 0.5
     assert res["singapore"]["static_summary"]["ours_0.25"]["x"] == 1
+
+
+def test_attach_singapore_builds_ablation_rows(tmp_path):
+    import json as _json
+    from invopt.grid import attach_singapore
+
+    def rep(pct, covid, rec, recent, w5, br):
+        per = {"2020–21 COVID": {"ours_0.25": {"profit": covid}}, "2022–23 recovery": {"ours_0.25": {"profit": rec}},
+               "2024–26 recent": {"ours_0.25": {"pct_of_hindsight": recent}}}
+        return {"summary": {"ours_0.25": {"pct_of_hindsight": pct, "worst5_month_avg": w5}}, "by_period": per,
+                "forecast": {"headline": {}}, "timeline": [], "assumptions": {}, "methods_used": {}, "notes": [],
+                "breaker_months": ["2020-07-01"] * br, "by_month": []}
+    for name, r in {"singapore": rep(80, -2.5e6, 4.5e6, 88.5, -3e5, 33),
+                    "singapore_nosafeguards": rep(47.7, -7.9e6, -5.7e6, 90.8, -1.3e6, 0)}.items():
+        (tmp_path / f"{name}.json").write_text(_json.dumps(r))
+    res = attach_singapore({}, tmp_path / "singapore.json")
+    rows = {r["key"]: r for r in res["singapore"]["ablations"]}
+    assert rows["headline"]["pct_of_hindsight"] == 80 and rows["nosafeguards"]["covid_profit"] == -7.9e6
+    assert "static" not in rows  # absent files are skipped
+    assert "by_month" not in res["singapore"]

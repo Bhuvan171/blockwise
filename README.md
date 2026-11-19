@@ -66,6 +66,60 @@ The other baselines show how much the *contract mix* alone is worth (blocks only
 
 Open the decision page: `out/blockwise_standalone.html`. It has budget, risk and shock controls, the buy list with a reason per line, the frontier, the profit distribution, exposure by region, where a new supplier would help most, and the proof tables.
 
+### 3. Real-shock replay on official Singapore data (SGD, 2011–2026)
+**Real data:** SingStat monthly
+- **visitor arrivals resident in India** (M550001, Jan 2008 – Sep 2026);
+- **average room rate and occupancy** for small, medium and large hotels (M550081).
+
+Every month from Mar 2011 to Sep 2026 (187 decisions), Blockwise commits inventory **two months ahead** using **only the statistics already published that day** (data lags about 2 months). It is then scored against real demand, real rates and real occupancy. Occupancy decides whether buying as needed was possible.
+
+| Blockwise · Balanced vs simple rules | All months | 2020–21 COVID | 2022–23 recovery | 2024–26 | Worst-5% month (avg) |
+|---|---|---|---|---|---|
+| **Blockwise · Balanced** | **80.2% of hindsight** | **−S$2.54M** | **+S$4.50M, 0 losing months** | 88.5% | **−S$0.31M** |
+| Block last year's volume | 70.9% | −S$6.47M | +S$3.53M | 89.9% | −S$0.64M |
+| Allot + block p25 (two-contract rule) | 70.8% | −S$3.55M | +S$2.22M | 87.8% | −S$0.61M |
+| Block the median forecast | 59.6% | −S$4.05M | −S$3.36M (9 losing months) | 87.8% | −S$0.84M |
+
+**What each part contributes (ablations, same data):**
+
+| Variant | All months | COVID | Recovery | 2024–26 |
+|---|---|---|---|---|
+| Adaptive calibration + safeguards (headline) | 80.2% | −S$2.54M | +S$4.50M | 88.5% |
+| … breaker at 1.5× / 3× error | 81.2% / 80.4% | −S$1.99M / −S$2.54M | +S$4.42M / +S$4.61M | 88.5% / 88.5% |
+| Static calibration (equal weights) + safeguards | 74.1% | −S$2.55M | +S$4.08M | **67.1%** (remembers COVID forever, under-commits) |
+| Adaptive calibration, **no safeguards** | **47.7%** | −S$7.86M | −S$5.66M | 90.8% |
+
+- **Adaptive calibration** is weighted, non-exchangeable split conformal (Barber, Candès, Ramdas & Tibshirani, 2023) on log forecast errors, with a half-life of 6 months. Uncertainty widens within months of a shock and narrows again once things calm down.
+- **Safeguards:**
+  - a **circuit breaker**: no prepaid blocks while the forecast was more than 2× off in any of the last 3 published months (allotments and buy-as-needed only);
+  - forecasts are capped at 1.5× the highest month ever published.
+  The breaker was on for 33 months (Jul 2020 – Mar 2023).
+- **Disclosure:**
+  - The safeguards were added **after** the first replay exposed over-commitment through COVID. The thresholds are round numbers, and the result barely moves between 1.5× and 3×.
+  - In calm years, simple rules do as well as Blockwise (2011–19: 91.4% vs 93.1% for last year's volume). **Blockwise's edge is surviving regime change.**
+- **Assumptions:**
+  - demand = 0.05 room-nights per Indian arrival, split 35/40/25% across small/medium/large hotels (percentages don't depend on the scale);
+  - 85% of demand booked 3+ weeks ahead (from the real hotel bookings);
+  - buying as needed is possible below 80% occupancy and impossible above 95%;
+  - contract rates as above.
+- **Licence:** contains information from SingStat Table Builder (tables M550001 and M550081), accessed on 19 Nov 2026, made available under the Singapore Open Data Licence.
+
+### 4. Forecaster benchmark (real bookings, same backtest for every forecaster)
+| Forecaster | Blockwise · Balanced % of hindsight (90% range) | Typical error (WAPE) | 80% / 90% band holds |
+|---|---|---|---|
+| **Ensemble: calibrated linear + calibrated gradient-boosted (booking pace) + Chronos-2** | **89.9% (87–92)** | **21.8%** | **82% / 92%** |
+| Linear quantile regression (Round 1 model) | 88.8% (85–91) | 23.2% | 74% / 84% |
+| Gradient-boosted quantiles + booking pace + conformal | 88.6% (85–91) | 27.1% | 72% / 85% |
+| Auto: lowest realised error so far (**pre-declared headline**) | 88.0% (85–90) | 24.8% | 77% / 86% |
+| Chronos-2 foundation model (Amazon, Oct 2025), zero-shot with booking-pace covariates | 86.8% (82–91) | 23.7% | 90% / 95% (too wide) |
+| Linear + conformal | 86.0% (82–89) | 28.9% | 66% / 74% |
+
+- **Honest reading:**
+  - The foundation model on its own isn't the best, because its bands are too wide. It adds value **inside the ensemble**, which wins on every accuracy metric and is the only well-calibrated model.
+  - Conformal recalibration of a single model *hurt* here: its calibration window holds the latest nights, which sit in a different season from the nights being forecast.
+  - The pre-declared online selector had only 15 rounds to learn from. City Hotel stayed on the linear model; Resort Hotel moved to the ensemble from round 9.
+- The headline table in §1 keeps the Round 1 forecaster, which was fixed before this benchmark.
+
 ## How it works
 ```
 real bookings / synthetic portfolio
@@ -86,8 +140,12 @@ real bookings / synthetic portfolio
 cd inventory
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 ./scripts/fetch_data.sh                 # 16.9 MB public CSV
+./scripts/fetch_singstat.sh             # 2 official SingStat tables (~270 KB)
 .venv/bin/pytest                        # tests
 .venv/bin/python -m invopt.cli all      # backtest (~3 min) → grid (~15 min) → page
+.venv/bin/python -m invopt.cli singapore  # real-shock replay, 2011–2026 (~1 min; Chronos-2 on CPU)
+.venv/bin/python -m invopt.cli bench      # forecaster benchmark (~1 h on a laptop)
+.venv/bin/python -m invopt.cli page       # refresh the page with the latest replay / benchmark
 open out/blockwise_standalone.html
 ```
 Sensitivity runs: `python -m invopt.cli backtest --soft-cap-mult none --tag _uncapped`, `--soldout-tau 1.0 --tag _tau1`, `--budget-share 0.5 --tag _budget0.5`, `--hard-discount 0.25 --soft-discount 0.15 --tag _rates_low`, `--hard-discount 0.35 --soft-discount 0.25 --tag _rates_high`, then `grid` and `page` again.
@@ -116,4 +174,4 @@ Sensitivity runs: `python -m invopt.cli backtest --soft-cap-mult none --tag _unc
 `src/invopt/`: `hotel_data` (loader), `economics` (profit truth), `optimizer` (LP), `forecast`, `scenarios`, `backtest`, `portfolio` (synthetic world, shocks, worlds), `grid`, `page`, `cli` · `tests/` (pytest) · `data/README.md` (data card) · `out/` (results and pages) · `docs/superpowers/plans/` (implementation plan).
 
 ## Licences and tools
-numpy, pandas, scipy (BSD; HiGHS solver MIT) and scikit-learn (BSD) at runtime; pytest (MIT) for tests. The data is from an open-access *Data in Brief* article; cite it when reusing. Built with AI coding assistance (Claude Code).
+numpy, pandas, scipy (BSD; HiGHS solver MIT) and scikit-learn (BSD) at runtime; optional forecasting stack: PyTorch CPU (BSD), chronos-forecasting and transformers (Apache-2.0), Chronos-2 weights `amazon/chronos-2` (Apache-2.0); pytest (MIT) for tests. SingStat data under the Singapore Open Data Licence (attribution above). The data is from an open-access *Data in Brief* article; cite it when reusing. Built with AI coding assistance (Claude Code).

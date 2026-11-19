@@ -132,6 +132,44 @@ def _scale_hard(hard: np.ndarray, hard_cost: np.ndarray, budget: float) -> np.nd
     return hard
 
 
+ABLATIONS = [  # (key, file suffix, label)
+    ("headline", "", "Blockwise: adaptive calibration + safeguards (headline)"),
+    ("br1.5", "_br1.5", "Same, breaker at 1.5x error"),
+    ("br3", "_br3", "Same, breaker at 3x error"),
+    ("static", "_static", "Static calibration (equal weights) + safeguards"),
+    ("nosafeguards", "_nosafeguards", "Adaptive calibration, no safeguards"),
+]
+
+
+def attach_singapore(results: dict, singapore_path) -> dict:
+    """Add the Singapore replay (without its monthly rows) and its ablation table to `results`."""
+    path = Path(singapore_path) if singapore_path is not None else None
+    if path is None or not path.exists():
+        results["singapore"] = None
+        return results
+    sg = json.loads(path.read_text())
+    out = {k: v for k, v in sg.items() if k != "by_month"}  # monthly rows stay in out/singapore.json
+    rows = []
+    for key, suffix, label in ABLATIONS:
+        f = path.with_name(path.stem + suffix + ".json")
+        if not f.exists():
+            continue
+        r = json.loads(f.read_text())
+        b, per = r.get("summary", {}).get("ours_0.25", {}), r.get("by_period", {})
+        rows.append({"key": key, "label": label, "pct_of_hindsight": b.get("pct_of_hindsight"),
+                     "worst5_month_avg": b.get("worst5_month_avg"),
+                     "covid_profit": per.get("2020–21 COVID", {}).get("ours_0.25", {}).get("profit"),
+                     "recovery_profit": per.get("2022–23 recovery", {}).get("ours_0.25", {}).get("profit"),
+                     "recent_pct": per.get("2024–26 recent", {}).get("ours_0.25", {}).get("pct_of_hindsight"),
+                     "breaker_months": len(r.get("breaker_months", []))})
+        if key == "static":  # calibration coverage of the static variant, for the page's calibration table
+            out["static_forecast"] = r.get("forecast", {}).get("headline")
+            out["static_summary"] = r.get("summary")
+    out["ablations"] = rows
+    results["singapore"] = out
+    return results
+
+
 def run_grid(budget_fracs=(0.25, 0.5, 0.75, 1.0, 1.25), risk_levels: dict[str, float] | None = None,
              n_plan: int = 150, n_eval: int = 4000, weeks: int = 13, workers: int = 2,
              backtest_path: str | Path | None = "out/backtest.json", terms: ContractTerms | None = None,
@@ -237,16 +275,7 @@ def run_grid(budget_fracs=(0.25, 0.5, 0.75, 1.0, 1.25), risk_levels: dict[str, f
                 backtest.setdefault("sensitivity", {})[extra.removeprefix("backtest_").removesuffix(".json")] = \
                     json.loads(p.read_text())["summary"]
 
-    singapore = None
-    if singapore_path is not None and Path(singapore_path).exists():
-        sg = json.loads(Path(singapore_path).read_text())
-        singapore = {k: v for k, v in sg.items() if k != "by_month"}  # monthly rows stay in out/singapore.json
-        static_path = Path(singapore_path).with_name(Path(singapore_path).stem + "_static.json")
-        if static_path.exists():  # ablation: same replay with equal-weight (non-adaptive) calibration
-            st = json.loads(static_path.read_text())
-            singapore["static_forecast"] = st["forecast"].get("headline")
-            singapore["static_summary"] = st["summary"]
-            singapore["static_by_period"] = st.get("by_period")
+    singapore = attach_singapore({}, singapore_path)["singapore"] if singapore_path is not None else None
     bench = None
     if bench_path is not None and Path(bench_path).exists():
         b = json.loads(Path(bench_path).read_text())
