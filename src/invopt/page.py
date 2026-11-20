@@ -22,7 +22,7 @@ def compact(data: dict) -> dict:
             lines = cell.get("lines")
             if not isinstance(lines, list):
                 continue
-            col = {k: [] for k in ("product", "week", "hard", "soft", "prepaid", "profit", "p_loss", "sell", "reason")}
+            col = {k: [] for k in ("product", "week", "hard", "soft", "prepaid", "profit", "p_loss", "sell", "demand", "reason")}
             for ln in lines:
                 if ln["product"] not in products:
                     products[ln["product"]] = len(prod_rows)
@@ -37,6 +37,8 @@ def compact(data: dict) -> dict:
                 col["p_loss"].append(round(ln["p_line_loss"], 4))
                 st = ln.get("hard_sell_through")
                 col["sell"].append(None if st is None else round(st, 3))
+                md = ln.get("mean_demand")
+                col["demand"].append(None if md is None else round(md, 1))
                 col["reason"].append(ln["reason"])
             cell["lines"] = col
     data["line_products"] = prod_rows

@@ -53,7 +53,8 @@ def _expand(data, lines):
         out.append({"product": prod["name"], "kind": prod["kind"], "region": prod["region"],
                     "week_start": data["line_weeks"][lines["week"][i]], "hard": lines["hard"][i],
                     "soft": lines["soft"][i], "prepaid_inr": lines["prepaid"][i], "exp_profit_inr": lines["profit"][i],
-                    "p_line_loss": lines["p_loss"][i], "hard_sell_through": lines["sell"][i], "reason": lines["reason"][i]})
+                    "p_line_loss": lines["p_loss"][i], "hard_sell_through": lines["sell"][i], "reason": lines["reason"][i],
+                    "mean_demand": lines["demand"][i]})
     return out
 
 
@@ -73,6 +74,7 @@ def test_compact_lines_roundtrip_and_shrinks():
         assert b["hard"] == a["hard"] and b["prepaid_inr"] == round(a["prepaid_inr"])
         assert b["p_line_loss"] == pytest.approx(a["p_line_loss"], abs=1e-4)
         assert (b["hard_sell_through"] is None) == (a["hard_sell_through"] is None)
+        assert b["mean_demand"] == pytest.approx(a["mean_demand"], abs=0.05)  # the page's demand ticks
     assert "lines" in data["cells"]["0"]["Balanced"] and isinstance(data["cells"]["0"]["Balanced"]["lines"], list)  # input untouched
     big = {"cells": {"0": {"x": {"lines": rows * 200}}}}
     assert len(json.dumps(compact(big))) < 0.6 * len(json.dumps(big))

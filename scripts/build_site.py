@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "out" / "blockwise_standalone.html"
-TITLE = "Blockwise · risk-aware inventory planner"
+TITLE = "Blockwise: inventory commitments for B2B travel"
 DESC = ("Which hotel rooms and flight seats to lock in, how many, and under which contract, within a budget. "
         "Tested on real bookings and 15 years of official Singapore data.")
 
