@@ -405,7 +405,7 @@ footer .wrap { padding-top: 40px; padding-bottom: 44px; }
       <div class="control"><span class="lbl" id="lbl-budget">Budget</span><div class="seg" id="budget" role="group" aria-labelledby="lbl-budget"></div></div>
       <div class="control"><span class="lbl" id="lbl-risk">Risk appetite</span><div class="seg" id="risk" role="group" aria-labelledby="lbl-risk"></div></div>
       <div class="control"><label for="shock">Stress test</label><select id="shock"></select></div>
-      <div class="control"><label for="fp-budget">Or type a budget (₹ Cr)</label><input id="fp-budget" type="number" min="0" step="5" placeholder="e.g. 75"></div>
+      <div class="control"><label for="fp-budget">Or type any budget (₹ Cr)</label><input id="fp-budget" type="number" min="0" step="5" placeholder="e.g. 40" inputmode="decimal"></div>
       <div class="control"><label for="fp-fill">Serve at least (% of demand)</label><input id="fp-fill" type="number" min="0" max="100" step="0.5" placeholder="optional"></div>
     </div>
     <section class="sheet fp" id="fp-out" aria-live="polite" hidden></section>
@@ -1423,7 +1423,10 @@ const DATA = {"generated_seconds":972.4495,"singapore":{"summary":{"allot_ly_blo
         <div class="fp-kpis"><span>Prepaid<b>${cr(r.spend, 1)}</b></span><span>Expected profit<b>${cr(r.exp_profit, 1)}</b></span><span>Demand served<b>${pct(r.fill, 1)}</b></span>${f > 0 ? `<span>Floor ${f}%<b>${r.floor_met === false ? "not reachable" : "met"}</b></span>` : ""}</div>
         <p class="note">Largest blocks: ${top.map(([h, i]) => `${esc(CAT.products[CAT.product[i]].name)} ${esc(dayMonth(CAT.week_start[i]))} (${num(h)})`).join(" · ") || "none"}. Allotments fill each week's cap; blocks follow profit per rupee, at most ${pct(DATA.assumptions.region_share, 0)} of the budget per region. ${free} Bad case, loss chance and stress tests: pick a preset budget above, which uses the full risk model.</p>`;
     };
-    bi.onchange = go; fi.onchange = go;
+    // plan as you type (debounced), and again on Enter / leaving the box
+    let tm = 0;
+    const soon = () => { clearTimeout(tm); tm = setTimeout(go, 180); };
+    bi.oninput = soon; fi.oninput = soon; bi.onchange = go; fi.onchange = go;
   }
 
   // ---------- self-check hook: open the page at #qdtest to print fixed cases for tests/test_quote_page.py ----------
