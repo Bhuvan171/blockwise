@@ -1,219 +1,399 @@
-<title>Blockwise Inventory Planner</title>
-<meta name="claude:viewport-fit-sides" content="cover">
+<title>Blockwise · risk-aware inventory planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
 <style>
-/* Layout: a planning tool. Controls + KPI row on top, buy list beside two charts, then exposure/gaps, then the proof (real-data backtest, robustness), then assumptions. */
+/* Blockwise site. One rule carries the design: each way of buying inventory has one colour everywhere
+   (prepaid block = orange, allotment = teal, buy as needed = grey, Blockwise's own forecast/plan = blue).
+   Chart colours are the validated dark categorical steps (dataviz validator, surface #111316: all checks pass). */
 :root {
-  --page: #f9f9f7; --surface: #fcfcfb; --raised: #ffffff;
-  --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
-  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
-  --accent: #2a78d6; --accent-ink: #1c5cab; --accent-wash: #e8f1fc;
-  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
-  --good: #006300; --bad: #b42a2a; --warn-bg: #fff4d6; --warn-ink: #6b4a00;
-  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --page: #0d0d0d; --surface: #1a1a19; --raised: #222221;
-    --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
-    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
-    --accent: #3987e5; --accent-ink: #86b6ef; --accent-wash: #16263a;
-    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
-    --good: #0ca30c; --bad: #e66767; --warn-bg: #3a2e10; --warn-ink: #f3d27a;
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --page: #0d0d0d; --surface: #1a1a19; --raised: #222221;
-  --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
-  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
-  --accent: #3987e5; --accent-ink: #86b6ef; --accent-wash: #16263a;
-  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
-  --good: #0ca30c; --bad: #e66767; --warn-bg: #3a2e10; --warn-ink: #f3d27a;
   color-scheme: dark;
+  --page: #0a0b0d; --surface: #111316; --raised: #171a1e; --sunken: #0d0e10;
+  --ink: #eceae5; --ink-2: #a8acb3; --muted: #747981;
+  --grid: #1f2328; --axis: #30353c; --border: rgba(255,255,255,0.08); --border-2: rgba(255,255,255,0.16);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --hard: #d95926; --soft: #199e70; --dyn: #565c65; --ours: #3987e5; --bar-muted: #3e444c;
+  --good: #0ca30c; --good-ink: #5bc45b; --bad: #e66767; --warn-bg: #2a2210; --warn-ink: #f3d27a;
+  --accent-wash: rgba(57,135,229,0.10);
+  --font: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --r: 14px; --nav-h: 60px;
 }
 * { box-sizing: border-box; }
-body { background: var(--page); color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.5;
-  font-variant-numeric: tabular-nums; }
-.wrap { max-width: 1280px; margin: 0 auto; padding-block: 24px 48px;
-  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
-  display: grid; gap: 20px; }
-header { display: grid; gap: 6px; }
-.brand { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 14px; }
-h1 { font-size: 24px; line-height: 1.15; margin: 0; letter-spacing: -0.01em; }
-h2 { font-size: 16px; margin: 0; text-wrap: balance; }
-h3 { font-size: 13px; margin: 0; color: var(--ink-2); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+html { background: var(--page); scroll-padding-top: calc(var(--nav-h) + 16px); }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+body { margin: 0; background: var(--page); color: var(--ink); font-family: var(--font); font-size: 15px; line-height: 1.55;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+a { color: inherit; }
 p { margin: 0; }
-.sub { color: var(--ink-2); max-width: 75ch; }
-.tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--ink-2); background: var(--surface); white-space: nowrap; }
-.tag.real { color: var(--good); border-color: currentColor; }
-.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
-.panel > .head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 12px; }
-.note { font-size: 12px; color: var(--muted); }
-.controls { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: flex-end; }
-.control { display: grid; gap: 6px; }
-.control label, .control .lbl { font-size: 12px; color: var(--ink-2); font-weight: 600; }
-.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--raised); }
-.seg button { font: inherit; font-size: 13px; border: 0; background: transparent; color: var(--ink); padding: 6px 12px; cursor: pointer; border-right: 1px solid var(--border); }
-.seg button:last-child { border-right: 0; }
-.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
-.seg button:focus-visible, select:focus-visible, th button:focus-visible, .linkbtn:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-select { font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--raised); color: var(--ink); max-width: 100%; }
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
-.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; display: grid; gap: 2px; align-content: start; }
-.kpi .k { font-size: 12px; color: var(--ink-2); }
-.kpi .v { font-size: 24px; font-weight: 650; letter-spacing: -0.01em; }
+h1, h2, h3, h4 { margin: 0; font-weight: 600; }
+.shell { max-width: 1200px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+/* ---------- nav ---------- */
+.nav { position: sticky; top: 0; z-index: 20; height: var(--nav-h); background: rgba(10,11,13,0.78);
+  backdrop-filter: saturate(140%) blur(14px); -webkit-backdrop-filter: saturate(140%) blur(14px); border-bottom: 1px solid var(--border); }
+.nav .shell { height: 100%; display: flex; align-items: center; gap: 28px; }
+.logo { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 600; font-size: 16px; letter-spacing: -0.01em; }
+.logo svg { display: block; }
+.nav nav { display: flex; gap: 4px; margin-left: auto; }
+.nav nav a { text-decoration: none; color: var(--ink-2); font-size: 14px; padding: 6px 10px; border-radius: 8px; }
+.nav nav a:hover { color: var(--ink); background: rgba(255,255,255,0.04); }
+.nav nav a[aria-current="true"] { color: var(--ink); }
+.nav .tagline { font-family: var(--mono); font-size: 11.5px; color: var(--muted); letter-spacing: 0.02em; white-space: nowrap; }
+@media (max-width: 860px) { .nav nav { display: none; } .nav .tagline { margin-left: auto; } }
+@media (max-width: 560px) { .nav .tagline { display: none; } }
+
+/* ---------- type ---------- */
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.lede { color: var(--ink-2); font-size: 17px; line-height: 1.6; max-width: 62ch; }
+.ck { font-weight: 500; color: var(--ink); white-space: nowrap; }
+.ck::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; vertical-align: 0.06em; }
+.ck.hard::before { background: var(--hard); } .ck.soft::before { background: var(--soft); } .ck.dyn::before { background: var(--dyn); }
+.tag { justify-self: start; align-self: start; width: max-content; display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.02em; padding: 3px 9px;
+  border-radius: 999px; border: 1px solid var(--border-2); color: var(--ink-2); white-space: nowrap; }
+.tag.real { color: var(--good-ink); border-color: rgba(91,196,91,0.35); }
+.tag.real::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--good-ink); }
+.note { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+
+/* ---------- buttons ---------- */
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 18px; border-radius: 10px; font: inherit; font-size: 14.5px;
+  font-weight: 500; text-decoration: none; cursor: pointer; border: 1px solid transparent; }
+.btn.primary { background: var(--ink); color: #0a0b0d; }
+.btn.primary:hover { background: #fff; }
+.btn.ghost { border-color: var(--border-2); color: var(--ink); }
+.btn.ghost:hover { background: rgba(255,255,255,0.05); }
+.btn:focus-visible, .seg button:focus-visible, select:focus-visible, th button:focus-visible, .linkbtn:focus-visible, summary:focus-visible, .nav a:focus-visible {
+  outline: 2px solid var(--ours); outline-offset: 2px; }
+
+/* ---------- hero ---------- */
+.hero { padding: clamp(56px, 9vw, 112px) 0 40px; display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); gap: 56px; align-items: center; }
+.hero h1 { font-size: clamp(40px, 5.6vw, 68px); line-height: 1.02; letter-spacing: -0.038em; margin: 18px 0 22px; text-wrap: balance; }
+.hero .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+@media (max-width: 960px) { .hero { grid-template-columns: minmax(0, 1fr); gap: 40px; } }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }
+.hero-card { margin: 0; padding: 22px; display: grid; gap: 18px; box-shadow: 0 30px 80px -40px rgba(0,0,0,0.8); }
+.hero-card .top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.hero-card .prod { font-size: 20px; font-weight: 600; letter-spacing: -0.015em; }
+.hero-card .wk { color: var(--ink-2); font-size: 14px; }
+.mixbar { display: flex; gap: 2px; height: 40px; }
+.mixbar span { display: block; height: 100%; border-radius: 4px; }
+@media (prefers-reduced-motion: no-preference) { .mixbar span { transition: flex-grow 900ms cubic-bezier(.2,.7,.1,1); } }
+.mixbar .h { background: var(--hard); } .mixbar .s { background: var(--soft); }
+.mixbar .d { background: repeating-linear-gradient(135deg, transparent 0 5px, rgba(255,255,255,0.08) 5px 6px); border: 1px solid var(--border-2); }
+.mixlegend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.mixlegend div { display: grid; gap: 2px; }
+.mixlegend .v { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: proportional-nums; }
+.mixlegend .l { font-size: 12.5px; color: var(--ink-2); }
+.hero-card .why { font-size: 13.5px; color: var(--ink-2); border-top: 1px solid var(--border); padding-top: 14px; }
+.hero-card .meta { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 13px; color: var(--ink-2); }
+.hero-card .meta b { color: var(--ink); font-weight: 600; }
+
+/* ---------- proof strip ---------- */
+.proof { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; margin-bottom: 24px; }
+.proof .stat { padding: 26px 24px; display: grid; gap: 10px; align-content: start; background: var(--surface); }
+.proof .stat + .stat { border-left: 1px solid var(--border); }
+.proof .big { font-size: clamp(40px, 4.6vw, 56px); font-weight: 600; letter-spacing: -0.04em; line-height: 1; font-variant-numeric: proportional-nums; }
+.proof .what { color: var(--ink); font-size: 15px; max-width: 34ch; }
+.proof .vs { color: var(--muted); font-size: 13px; }
+@media (max-width: 860px) { .proof { grid-template-columns: minmax(0, 1fr); } .proof .stat + .stat { border-left: 0; border-top: 1px solid var(--border); } }
+
+/* ---------- sections ---------- */
+.sec { padding: clamp(64px, 9vw, 112px) 0 0; display: grid; gap: 36px; }
+.sec-head { display: grid; gap: 14px; max-width: 760px; }
+.sec-head h2 { font-size: clamp(30px, 3.6vw, 44px); line-height: 1.08; letter-spacing: -0.03em; text-wrap: balance; }
+.sec-head.row { max-width: none; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 14px 24px; }
+.sec-head.row > div { display: grid; gap: 14px; max-width: 760px; }
+@media (max-width: 700px) { .sec-head.row { grid-template-columns: minmax(0, 1fr); } }
+.contracts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.contract { padding: 22px; display: grid; gap: 14px; align-content: start; }
+.contract .chip { width: 36px; height: 8px; border-radius: 3px; }
+.contract h3 { font-size: 19px; letter-spacing: -0.015em; }
+.contract .rate { font-size: 34px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: proportional-nums; }
+.contract .rate small { font-size: 14px; font-weight: 400; color: var(--ink-2); letter-spacing: 0; margin-left: 6px; }
+.contract dl { margin: 0; display: grid; gap: 10px; }
+.contract dt { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.contract dd { margin: 2px 0 0; color: var(--ink-2); font-size: 14px; }
+.kicker { font-size: 19px; line-height: 1.5; max-width: 60ch; color: var(--ink); letter-spacing: -0.01em; }
+@media (max-width: 860px) { .contracts { grid-template-columns: minmax(0, 1fr); } }
+.steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--border); }
+.step { padding: 22px 22px 0 0; display: grid; gap: 10px; align-content: start; }
+.step + .step { padding-left: 22px; border-left: 1px solid var(--border); }
+.step .n { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.step h3 { font-size: 17px; letter-spacing: -0.01em; }
+.step p { color: var(--ink-2); font-size: 14px; }
+@media (max-width: 960px) { .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } .step:nth-child(3) { border-left: 0; padding-left: 0; } }
+@media (max-width: 560px) { .steps { grid-template-columns: minmax(0, 1fr); } .step + .step { border-left: 0; padding-left: 0; } }
+
+/* ---------- planner console ---------- */
+.console { display: grid; gap: 16px; }
+.controls { position: sticky; top: calc(var(--nav-h) + 8px); z-index: 10; display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-end;
+  padding: 14px 16px; background: rgba(23,26,30,0.92); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border-2); border-radius: var(--r); }
+.control { display: grid; gap: 7px; }
+.control label, .control .lbl { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: 10px; background: var(--sunken); border: 1px solid var(--border); }
+.seg button { font: inherit; font-size: 13.5px; border: 0; background: transparent; color: var(--ink-2); padding: 6px 12px; border-radius: 7px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.seg button:hover { color: var(--ink); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: #0a0b0d; font-weight: 500; }
+select { font: inherit; font-size: 13.5px; height: 36px; padding: 0 34px 0 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--sunken); color: var(--ink);
+  max-width: 100%; appearance: none; -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-2) 50%), linear-gradient(135deg, var(--ink-2) 50%, transparent 50%);
+  background-position: calc(100% - 17px) 15px, calc(100% - 12px) 15px; background-size: 5px 5px; background-repeat: no-repeat; }
+.banner { background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 10px 14px; font-size: 13.5px; }
+.kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+.kpi { background: var(--surface); padding: 16px 18px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; }
+.kpi .k { font-size: 12.5px; color: var(--ink-2); line-height: 1.35; min-height: 2.7em; overflow-wrap: anywhere; }
+.kpi .v { font-size: 26px; font-weight: 600; letter-spacing: -0.025em; font-variant-numeric: proportional-nums; }
 .kpi .d { font-size: 12px; color: var(--muted); }
-.kpi .d.up { color: var(--good); } .kpi .d.down { color: var(--bad); }
-.banner { background: var(--warn-bg); color: var(--warn-ink); border-radius: 6px; padding: 8px 12px; font-size: 13px; }
-.grid2 { display: grid; gap: 20px; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: start; }
-.stack { display: grid; gap: 20px; min-width: 0; }
-@media (max-width: 1000px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
+.kpi .d.up { color: var(--good-ink); } .kpi .d.down { color: var(--bad); }
+@media (max-width: 1100px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 20px; display: grid; gap: 14px; min-width: 0; align-content: start; }
+.panel > .head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 14px; }
+.panel h3 { font-size: 16px; letter-spacing: -0.01em; }
+.grid2 { display: grid; gap: 16px; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: start; }
+.cols { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items: start; }
+.stack { display: grid; gap: 16px; min-width: 0; }
+.planner-grid { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
+.bt-top { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 28px; align-items: center; }
+#bt-table td:first-child, #sg-table td:first-child, #rob td:first-child { white-space: nowrap; }
+@media (max-width: 1000px) { .grid2, .planner-grid, .bt-top { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- tables ---------- */
 .scroll { overflow-x: auto; min-width: 0; }
-table { border-collapse: collapse; width: 100%; font-size: 13px; }
-th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
-th { font-size: 12px; color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); font-weight: 500; white-space: nowrap; }
 th button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+th button:hover { color: var(--ink); }
 td.n, th.n { text-align: right; white-space: nowrap; }
+tbody tr:hover td { background: rgba(255,255,255,0.015); }
 tr.mine td { background: var(--accent-wash); }
-td .why { color: var(--muted); font-size: 12px; margin-top: 2px; max-width: 46ch; }
-td .why > summary { font-weight: 400; color: var(--accent-ink); width: max-content; }
-.best { font-weight: 650; }
-.linkbtn { font: inherit; font-size: 13px; color: var(--accent-ink); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
+tr.mine td:first-child { box-shadow: inset 2px 0 0 var(--ours); }
+#buy td:first-child > div, #gaps td:first-child { white-space: nowrap; }
+td .why { color: var(--muted); white-space: normal; font-size: 12.5px; margin-top: 3px; max-width: 48ch; }
+td .why > summary { font-weight: 400; color: var(--ink-2); width: max-content; list-style: none; cursor: pointer; }
+td .why > summary::before { content: "+ "; color: var(--muted); }
+td .why[open] > summary::before { content: "− "; }
+td .why > summary::-webkit-details-marker { display: none; }
+.sw-h::before, .sw-s::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: 0.04em; }
+.sw-h::before { background: var(--hard); } .sw-s::before { background: var(--soft); }
+.best { font-weight: 600; color: var(--ink); }
+.linkbtn { font: inherit; font-size: 13.5px; color: var(--ink-2); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.linkbtn:hover { color: var(--ink); }
+
+/* ---------- charts ---------- */
 .chart { position: relative; }
 .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
 .chart text { font-family: var(--font); }
-.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink-2); }
-.legend i { display: inline-block; width: 12px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
-.tip { position: absolute; pointer-events: none; background: var(--raised); color: var(--ink); border: 1px solid var(--border); border-radius: 6px;
-  padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); min-width: 150px; z-index: 5; }
-.tip b { display: block; margin-bottom: 4px; }
-.tip .row { display: flex; justify-content: space-between; gap: 12px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--ink-2); }
+.legend i { display: inline-block; width: 12px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 7px; }
+.tip { position: absolute; pointer-events: none; background: var(--raised); color: var(--ink); border: 1px solid var(--border-2); border-radius: 10px;
+  padding: 10px 12px; font-size: 12.5px; box-shadow: 0 14px 40px rgba(0,0,0,0.5); min-width: 170px; z-index: 5; }
+.tip b { display: block; margin-bottom: 6px; font-weight: 600; }
+.tip .row { display: flex; justify-content: space-between; gap: 14px; font-variant-numeric: tabular-nums; }
 .tip .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
-.headline { font-size: 15px; max-width: 80ch; }
-.headline strong { font-weight: 650; }
-details > summary { cursor: pointer; font-weight: 600; }
-details[open] > summary { margin-bottom: 10px; }
-.cols { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-footer { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
-@media (prefers-reduced-motion: no-preference) { .seg button { transition: background 120ms; } }
+.tip .note { margin-top: 6px; }
+
+/* ---------- evidence ---------- */
+.ev-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px 16px; }
+.ev-head h3 { font-size: 22px; letter-spacing: -0.02em; }
+.headline { font-size: 15.5px; color: var(--ink-2); max-width: 86ch; line-height: 1.65; }
+.headline strong { font-weight: 600; color: var(--ink); }
+details.more > summary { cursor: pointer; font-weight: 500; color: var(--ink); list-style: none; display: flex; align-items: center; gap: 8px; }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary::before { content: "+"; font-family: var(--mono); color: var(--muted); width: 14px; }
+details.more[open] > summary::before { content: "−"; }
+details.more[open] > summary { margin-bottom: 12px; }
+.limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.limits .panel p { color: var(--ink-2); font-size: 14px; }
+.method-cols h4 { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 8px; }
+
+footer { margin-top: clamp(72px, 10vw, 128px); border-top: 1px solid var(--border); padding: 32px 0 48px; }
+footer .shell { display: grid; gap: 8px; font-size: 12.5px; color: var(--muted); }
+footer .logo { color: var(--ink); margin-bottom: 6px; }
+@media (prefers-reduced-motion: no-preference) { .seg button, .btn, .nav nav a { transition: background 140ms, color 140ms; } }
 </style>
 
-<div class="wrap">
-  <header>
-    <div class="brand">
-      <h1>Blockwise</h1>
-      <span class="tag">Inventory commitment planner</span>
-      <span class="tag">Portfolio: synthetic, Jan–Mar 2027</span>
-      <span class="tag real">Proof: real bookings</span>
-    </div>
-    <p class="sub">Which hotel rooms and flight seats to lock in, how many, and under which contract (prepaid hard block, refundable allotment, or buy as needed), within a budget, trading expected profit against bad-case losses and sold-out searches. Every plan below was optimised on 150 simulated futures and scored on 4,000 fresh ones.</p>
-  </header>
+<header class="nav">
+  <div class="shell">
+    <a class="logo" href="#top" aria-label="Blockwise home">
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect x="2" y="3" width="18" height="4.5" rx="1.6" fill="#d95926"/><rect x="2" y="9" width="13" height="4.5" rx="1.6" fill="#199e70"/><rect x="2.5" y="15.5" width="7.5" height="3.5" rx="1.6" fill="none" stroke="#747981"/></svg>
+      Blockwise
+    </a>
+    <nav aria-label="Sections">
+      <a href="#problem">The decision</a><a href="#how">How it works</a><a href="#planner">Planner</a><a href="#evidence">Evidence</a><a href="#method">Method</a>
+    </nav>
+    <span class="tagline">VoyageHack 4.0 · Inventory optimization</span>
+  </div>
+</header>
 
-  <section class="panel" aria-label="Plan settings">
-    <div class="controls">
-      <div class="control"><span class="lbl" id="lbl-budget">Prepaid budget</span><div class="seg" id="budget" role="group" aria-labelledby="lbl-budget"></div></div>
-      <div class="control"><span class="lbl" id="lbl-risk">Risk appetite</span><div class="seg" id="risk" role="group" aria-labelledby="lbl-risk"></div></div>
-      <div class="control"><label for="shock">Stress test: what if…</label><select id="shock"></select></div>
+<main class="shell" id="top">
+  <section class="hero">
+    <div>
+      <p class="eyebrow">Inventory commitments for B2B travel</p>
+      <h1>Lock in the right rooms and seats, at the risk you choose.</h1>
+      <p class="lede">For every hotel and flight, week by week, Blockwise decides how much to <span class="ck hard">prepay</span>, how much to <span class="ck soft">hold on allotment</span> and how much to <span class="ck dyn">buy as needed</span>, all within one budget.</p>
+      <div class="cta"><a class="btn primary" href="#planner">Open the planner</a><a class="btn ghost" href="#evidence">See the evidence</a></div>
     </div>
-    <div class="banner" id="status" hidden></div>
+    <figure class="card hero-card" id="hero-card" aria-label="One line of a Blockwise plan"></figure>
   </section>
 
-  <section class="kpis" id="kpis" aria-label="Plan results"></section>
+  <section class="proof" id="proof" aria-label="Results on real data"></section>
 
-  <div class="grid2">
-    <section class="panel" aria-labelledby="h-buy">
-      <div class="head"><h2 id="h-buy">Buy list</h2><span class="note" id="buy-note"></span></div>
-      <div class="scroll"><table id="buy"></table></div>
-      <div><button class="linkbtn" id="buy-more" type="button"></button></div>
-    </section>
-    <div class="stack">
-      <section class="panel" aria-labelledby="h-front">
-        <div class="head"><h2 id="h-front">Budget frontier</h2><span class="note">Expected profit, ₹ crore</span></div>
-        <div class="legend" id="front-legend"></div>
-        <div class="chart" id="frontier" role="img" aria-label="Expected profit by budget for each risk appetite"></div>
-        <p class="note">Each line is a risk appetite; the ringed point is the plan shown. Flattening lines mean extra budget buys little.</p>
-      </section>
-      <section class="panel" aria-labelledby="h-dist">
-        <div class="head"><h2 id="h-dist">Profit across 4,000 futures</h2><span class="note">share of futures, by portfolio profit</span></div>
-        <div class="legend" id="dist-legend"></div>
-        <div class="chart" id="dist" role="img" aria-label="Distribution of portfolio profit across simulated futures"></div>
-      </section>
+  <section class="sec" id="problem">
+    <div class="sec-head">
+      <p class="eyebrow">The decision</p>
+      <h2>Every room and seat can be bought three ways.</h2>
+      <p class="lede">Months before travel, a distributor decides how to secure inventory. Each way has a different price and a different risk, and the right mix changes by product, by week and with the budget.</p>
     </div>
-  </div>
+    <div class="contracts" id="contracts"></div>
+    <p class="kicker">A forecast gives one number. The profit is in the mix: how many of each, for every product and week, inside one budget, with a clear view of the bad case.</p>
+  </section>
 
-  <div class="cols">
-    <section class="panel" aria-labelledby="h-exp">
-      <div class="head"><h2 id="h-exp">Where the prepaid money sits</h2><span class="note">hard blocks, ₹ crore</span></div>
-      <div class="chart" id="exposure" role="img" aria-label="Prepaid spend by region"></div>
-      <p class="note">Risk policy: no region may hold more than <span id="region-share"></span> of the budget.</p>
-    </section>
-    <section class="panel" aria-labelledby="h-gaps">
-      <div class="head"><h2 id="h-gaps">Where a new supplier would help most</h2></div>
-      <p class="note">Weeks where this plan still turns demand away (sold out in the market and not covered), valued at the margin and goodwill lost. Candidates for supplier integration.</p>
-      <div class="scroll"><table id="gaps"></table></div>
-    </section>
-  </div>
+  <section class="sec" id="how">
+    <div class="sec-head">
+      <p class="eyebrow">How it works</p>
+      <h2>From bookings to a buy list with a reason on every line.</h2>
+    </div>
+    <div class="steps" id="steps"></div>
+  </section>
 
-  <section class="panel" aria-labelledby="h-bt" id="bt-panel">
-    <div class="head"><h2 id="h-bt">Proof on real bookings</h2><span class="tag real">Real data · EUR</span></div>
-    <p class="headline" id="bt-headline"></p>
-    <div class="grid2">
-      <div class="scroll"><table id="bt-table"></table></div>
-      <div class="stack">
+  <section class="sec" id="planner">
+    <div class="sec-head row">
+      <div>
+        <p class="eyebrow">Planner</p>
+        <h2>Set the budget and the risk. Watch the plan change.</h2>
+        <p class="lede" id="planner-lede"></p>
+      </div>
+      <span class="tag">Synthetic demo portfolio</span>
+    </div>
+    <div class="console">
+      <div class="controls" role="group" aria-label="Plan settings">
+        <div class="control"><span class="lbl" id="lbl-budget">Prepaid budget</span><div class="seg" id="budget" role="group" aria-labelledby="lbl-budget"></div></div>
+        <div class="control"><span class="lbl" id="lbl-risk">Risk appetite</span><div class="seg" id="risk" role="group" aria-labelledby="lbl-risk"></div></div>
+        <div class="control"><label for="shock">Stress test</label><select id="shock"></select></div>
+      </div>
+      <div class="banner" id="status" hidden></div>
+      <section class="kpis" id="kpis" aria-label="Plan results"></section>
+      <div class="grid2 planner-grid">
+        <section class="panel" aria-labelledby="h-buy">
+          <div class="head"><h3 id="h-buy">Buy list</h3><span class="note" id="buy-note"></span></div>
+          <div class="scroll"><table id="buy"></table></div>
+          <div><button class="linkbtn" id="buy-more" type="button"></button></div>
+        </section>
+        <div class="stack">
+          <section class="panel" aria-labelledby="h-front">
+            <div class="head"><h3 id="h-front">Budget frontier</h3><span class="note">Expected profit, ₹ crore</span></div>
+            <div class="legend" id="front-legend"></div>
+            <div class="chart" id="frontier" role="img" aria-label="Expected profit by budget for each risk appetite"></div>
+            <p class="note">One line per risk appetite; the ringed point is the plan shown. Click a budget to switch. Where the lines flatten, extra budget buys little.</p>
+          </section>
+          <section class="panel" aria-labelledby="h-dist">
+            <div class="head"><h3 id="h-dist">Profit across 4,000 futures</h3><span class="note">share of futures by portfolio profit</span></div>
+            <div class="legend" id="dist-legend"></div>
+            <div class="chart" id="dist" role="img" aria-label="Distribution of portfolio profit across simulated futures"></div>
+          </section>
+        </div>
+      </div>
+      <div class="cols">
+        <section class="panel" aria-labelledby="h-exp">
+          <div class="head"><h3 id="h-exp">Where the prepaid money sits</h3><span class="note">prepaid blocks, ₹ crore</span></div>
+          <div class="chart" id="exposure" role="img" aria-label="Prepaid spend by region"></div>
+          <p class="note">Risk policy: no region may hold more than <span id="region-share"></span> of the budget.</p>
+        </section>
+        <section class="panel" aria-labelledby="h-gaps">
+          <div class="head"><h3 id="h-gaps">Where a new supplier would help most</h3></div>
+          <p class="note">Weeks where this plan still turns bookings away (sold out in the market and not covered), valued at the margin and goodwill lost.</p>
+          <div class="scroll"><table id="gaps"></table></div>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="evidence">
+    <div class="sec-head">
+      <p class="eyebrow">Evidence</p>
+      <h2>Tested on real bookings and a real crisis.</h2>
+      <p class="lede">Each test replays history decision by decision, using only what was known on that day, then scores every plan against what actually happened. Simple rules get the same forecast and the same safeguards.</p>
+    </div>
+
+    <section class="panel" aria-labelledby="h-bt" id="bt-panel">
+      <div class="ev-head"><h3 id="h-bt">Real tour-operator bookings, two hotels</h3><span class="tag real">Real data · EUR</span></div>
+      <p class="headline" id="bt-headline"></p>
+      <div class="bt-top">
         <div class="chart" id="bt-chart" role="img" aria-label="Share of perfect-hindsight profit captured by each policy"></div>
         <p class="note" id="bt-forecast"></p>
       </div>
+      <div class="scroll"><table id="bt-table"></table></div>
+      <details class="more" id="bench-wrap" hidden>
+        <summary>Which forecaster? Benchmarked on accuracy and on profit, including Chronos-2</summary>
+        <div class="scroll"><table id="bench"></table></div>
+        <p class="note" id="bench-note"></p>
+      </details>
+      <details class="more">
+        <summary>Does the result depend on our assumptions?</summary>
+        <div class="scroll"><table id="bt-sens"></table></div>
+      </details>
+      <p class="note" id="bt-method"></p>
+    </section>
+
+    <section class="panel" aria-labelledby="h-sg" id="sg-panel">
+      <div class="ev-head"><h3 id="h-sg">COVID replay: Indian travellers to Singapore, 2011–2026</h3><span class="tag real">Official data · SGD</span></div>
+      <p class="headline" id="sg-headline"></p>
+      <div class="legend" id="sg-legend-1"></div>
+      <div class="chart" id="sg-demand" role="img" aria-label="Real monthly demand vs Blockwise forecast band, 2011 to 2026"></div>
+      <div class="legend" id="sg-legend-2"></div>
+      <div class="chart" id="sg-commit" role="img" aria-label="Blockwise monthly commitments: prepaid blocks and free-release allotments"></div>
+      <div class="scroll"><table id="sg-table"></table></div>
+      <details class="more">
+        <summary>Calibration, ablations and sensitivity</summary>
+        <div class="stack">
+          <div class="scroll"><table id="sg-cal"></table></div>
+          <div class="scroll"><table id="sg-abl"></table></div>
+          <p class="note">Blockwise = Balanced plan. Best rule = the best of the six simple rules (with and without the breaker), re-run under the same conditions.</p>
+        </div>
+      </details>
+      <p class="note" id="sg-method"></p>
+    </section>
+
+    <section class="panel" aria-labelledby="h-rob">
+      <div class="ev-head"><h3 id="h-rob">Stress-tested in worlds it was not planned for</h3><span class="tag">Synthetic · INR</span></div>
+      <p class="headline" id="rob-headline"></p>
+      <div class="scroll"><table id="rob"></table></div>
+      <p class="note" id="rob-note"></p>
+    </section>
+  </section>
+
+  <section class="sec" id="method">
+    <div class="sec-head">
+      <p class="eyebrow">Method</p>
+      <h2>What is real, what is assumed, and what is not built yet.</h2>
     </div>
-    <details id="bench-wrap" hidden>
-      <summary>Which forecaster? Benchmarked on accuracy and on profit</summary>
-      <div class="scroll"><table id="bench"></table></div>
-      <p class="note" id="bench-note"></p>
-    </details>
-    <details>
-      <summary>Sensitivity: does the result depend on our assumptions?</summary>
-      <div class="scroll"><table id="bt-sens"></table></div>
-    </details>
-    <p class="note" id="bt-method"></p>
+    <div class="limits" id="limits"></div>
+    <section class="panel">
+      <details class="more">
+        <summary>All assumptions behind the demo portfolio</summary>
+        <div class="cols method-cols" id="assumptions"></div>
+      </details>
+    </section>
   </section>
+</main>
 
-  <section class="panel" aria-labelledby="h-sg" id="sg-panel">
-    <div class="head"><h2 id="h-sg">Real-shock replay: Indian travellers to Singapore, 2011–2026</h2><span class="tag real">Official data · SGD</span></div>
-    <p class="headline" id="sg-headline"></p>
-    <div class="legend" id="sg-legend-1"></div>
-    <div class="chart" id="sg-demand" role="img" aria-label="Real monthly demand vs Blockwise forecast band, 2011 to 2026"></div>
-    <div class="legend" id="sg-legend-2"></div>
-    <div class="chart" id="sg-commit" role="img" aria-label="Blockwise monthly commitments: prepaid blocks and free-release allotments"></div>
-    <div class="scroll"><table id="sg-table"></table></div>
-    <div class="scroll"><table id="sg-cal"></table></div>
-    <div class="scroll"><table id="sg-abl"></table></div>
-    <p class="note">Blockwise = Balanced plan. Best rule = the best of the six simple rules above (with and without the breaker) re-run under the same conditions.</p>
-    <p class="note" id="sg-method"></p>
-  </section>
-
-  <section class="panel" aria-labelledby="h-rob">
-    <div class="head"><h2 id="h-rob">Tested in worlds it was not planned in</h2><span class="note" id="rob-note"></span></div>
-    <p class="headline" id="rob-headline"></p>
-    <div class="scroll"><table id="rob"></table></div>
-  </section>
-
-  <section class="panel">
-    <details>
-      <summary>Assumptions and how to read this page</summary>
-      <div class="cols" id="assumptions"></div>
-    </details>
-  </section>
-
-  <footer>
-    <p>Prototype built for TBO VoyageHack 4.0 (Automate Inventory Optimization); not a TBO product. The portfolio is synthetic and every parameter is listed above. The proof uses the public <em>Hotel booking demand</em> dataset (António, de Almeida &amp; Nunes, Data in Brief, 2019): real demand, booking dates, cancellations, prices and sold-out nights; contract rates are assumptions.</p>
+<footer>
+  <div class="shell">
+    <span class="logo"><svg width="18" height="18" viewBox="0 0 22 22" aria-hidden="true"><rect x="2" y="3" width="18" height="4.5" rx="1.6" fill="#d95926"/><rect x="2" y="9" width="13" height="4.5" rx="1.6" fill="#199e70"/><rect x="2.5" y="15.5" width="7.5" height="3.5" rx="1.6" fill="none" stroke="#747981"/></svg>Blockwise</span>
+    <p>Prototype built for TBO VoyageHack 4.0 (Automate Inventory Optimization) by team 5rods. Not a TBO product.</p>
+    <p>Real-data tests use the public <em>Hotel booking demand</em> dataset (António, de Almeida &amp; Nunes, Data in Brief, 2019) and SingStat tables M550001 and M550081 (Singapore Open Data Licence). The planner portfolio is synthetic.</p>
     <p id="gen-note"></p>
-  </footer>
-</div>
+  </div>
+</footer>
 
 <script>
 const DATA = /*__RESULTS__*/null;
 (function () {
   "use strict";
-  if (!DATA) { document.querySelector(".wrap").insertAdjacentHTML("beforeend", "<p>No results embedded.</p>"); return; }
+  if (!DATA) { document.querySelector("main").insertAdjacentHTML("beforeend", "<p>No results embedded.</p>"); return; }
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const CR = 1e7;
@@ -228,6 +408,7 @@ const DATA = /*__RESULTS__*/null;
   const RISKS = Object.keys(DATA.risk_levels);
   const SERIES = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)"];
   const SHOCKS = DATA.shock_labels || {};
+  const T = DATA.assumptions.terms;
   const defaultRisk = RISKS.includes("Balanced") ? "Balanced" : RISKS[0];
   // open on the largest budget that still binds, so "next ₹1 Cr earns" is meaningful
   let defaultB = DATA.reference_budget_index ?? 0;
@@ -242,21 +423,6 @@ const DATA = /*__RESULTS__*/null;
   if (state.shock !== "none" && !(state.shock in SHOCKS)) state.shock = "none";
   const save = () => { try { localStorage.setItem("blockwise-state", JSON.stringify({ b: state.b, risk: state.risk, shock: state.shock })); } catch (e) {} };
 
-  // ---------- controls ----------
-  function segButtons(el, items, current, onPick) {
-    el.innerHTML = items.map(([v, label]) => `<button type="button" aria-pressed="${String(v) === String(current)}" data-v="${esc(v)}">${esc(label)}</button>`).join("");
-    el.onclick = (e) => { const b = e.target.closest("button"); if (b) onPick(b.dataset.v); };
-  }
-  function renderControls() {
-    segButtons($("budget"), DATA.budgets_inr.map((b, i) => [i, cr(b, 1).replace(".0 Cr", " Cr")]), state.b, (v) => { state.b = +v; render(); });
-    segButtons($("risk"), RISKS.map((r) => [r, r]), state.risk, (v) => { state.risk = v; render(); });
-    const sel = $("shock");
-    sel.innerHTML = `<option value="none">No shock (base world)</option>` + Object.entries(SHOCKS).map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join("");
-    sel.value = state.shock;
-    sel.onchange = () => { state.shock = sel.value; render(); };
-  }
-
-  const cell = () => DATA.cells[String(state.b)][state.risk];
   const _lineCache = new Map();
   function linesOf(c) {  // rebuild row objects from the columnar form written by page.compact()
     const L = c.lines;
@@ -270,6 +436,94 @@ const DATA = /*__RESULTS__*/null;
     _lineCache.set(c, rows);
     return rows;
   }
+  const weekLabel = (w) => new Date(w + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+
+  // ---------- landing: hero card, proof strip, contracts, steps ----------
+  function renderHero() {
+    const cellRef = DATA.cells[String(defaultB)][defaultRisk];
+    const lines = linesOf(cellRef).filter((l) => l.kind === "hotel" && l.hard > 0 && l.soft > 0);
+    if (!lines.length) { $("hero-card").hidden = true; return; }
+    const l = lines.reduce((a, b) => (b.exp_profit_inr > a.exp_profit_inr ? b : a), lines[0]);
+    const total = l.hard + l.soft, rest = Math.max(0.12 * total, 1);
+    $("hero-card").innerHTML = `<div class="top"><div><div class="eyebrow">One line of the plan</div><div class="prod" style="margin-top:8px">${esc(l.product)}</div><div class="wk">week of ${esc(weekLabel(l.week_start))}</div></div><span class="tag">Synthetic demo</span></div>
+      <div class="mixbar" aria-hidden="true"><span class="h" style="flex:0 0 0"></span><span class="s" style="flex:0 0 0"></span><span class="d" style="flex:0 0 0"></span></div>
+      <div class="mixlegend">
+        <div><span class="v">${num(l.hard)}</span><span class="l"><span class="ck hard"></span>prepaid</span></div>
+        <div><span class="v">${num(l.soft)}</span><span class="l"><span class="ck soft"></span>on allotment</span></div>
+        <div><span class="v">the rest</span><span class="l"><span class="ck dyn"></span>bought as needed</span></div>
+      </div>
+      <p class="why">${esc(l.reason)}</p>
+      <div class="meta"><span>Prepaid <b>${cr(l.prepaid_inr, 2)}</b></span><span>Expected profit <b>${cr(l.exp_profit_inr, 2)}</b></span><span>Chance of loss <b>${pct(l.p_line_loss)}</b></span><span>Plan: <b>${cr(DATA.budgets_inr[defaultB], 0)} · ${esc(defaultRisk)}</b></span></div>`;
+    const segs = $("hero-card").querySelectorAll(".mixbar span");
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      segs[0].style.flex = `${l.hard} 1 0`; segs[1].style.flex = `${l.soft} 1 0`; segs[2].style.flex = `${rest} 1 0`;
+    }));
+  }
+
+  function renderProof() {
+    const items = [];
+    const bt = DATA.backtest;
+    if (bt) {
+      const S = Object.fromEntries(bt.summary.map((r) => [r.policy, r]));
+      const ours = S["ours_0.25"], two = S.allot_ly_block_p25;
+      if (ours) {
+        items.push(`<div class="stat"><span class="tag real">Real bookings</span><span class="big">${ours.pct_of_hindsight.toFixed(0)}%</span><span class="what">of the best possible profit, on real tour-operator bookings it had never seen.</span><span class="vs">${two ? `Best simple rule: ${two.pct_of_hindsight.toFixed(0)}%` : ""}</span></div>`);
+        items.push(`<div class="stat"><span class="tag real">Real bookings</span><span class="big">${ours.batches_with_loss} of ${bt.n_batches}</span><span class="what">four-week planning rounds lost money (${bt.config.start.slice(0, 4)}–${bt.config.end.slice(0, 4)}).</span><span class="vs">Unsold prepaid rooms cost ${eur(ours.unsold_hard_cost)} vs ${two ? eur(two.unsold_hard_cost) : "–"} for the best rule</span></div>`);
+      }
+    }
+    const sg = DATA.singapore;
+    if (sg && sg.by_period && sg.by_period["2020–21 COVID"]) {
+      const C = sg.by_period["2020–21 COVID"];
+      const rules = SGRULES.filter((p) => C[p]);
+      const best = rules.reduce((a, b) => (C[b].profit > C[a].profit ? b : a), rules[0]);
+      const ours = C["ours_0.25"];
+      if (ours && best && ours.profit < 0 && C[best].profit < 0) {
+        const cut = 1 - ours.profit / C[best].profit;
+        items.push(`<div class="stat"><span class="tag real">Official data</span><span class="big">${Math.round(100 * cut)}% smaller</span><span class="what">loss through COVID than the best simple rule, over 15 years of Singapore hotel data.</span><span class="vs">${sgd(-ours.profit)} lost vs ${sgd(-C[best].profit)}</span></div>`);
+      }
+    }
+    $("proof").innerHTML = items.join("");
+    $("proof").hidden = !items.length;
+  }
+
+  function renderContracts() {
+    const cards = [
+      ["hard", "Prepaid block", T.hard_discount, "Paid upfront. Non-refundable.", "Unsold rooms are lost money."],
+      ["soft", "Allotment", T.soft_discount, `Pay only for rooms used. Hand back free ${T.release_days} days before arrival.`, `A small holding cost (${(100 * T.soft_hold_cost).toFixed(0)}% of the rate per room held).`],
+      ["dyn", "Buy as needed", T.dyn_discount, "Bought when an agent books.", "None, until the hotel or flight sells out. Then the booking is lost."],
+    ];
+    $("contracts").innerHTML = cards.map(([cls, name, disc, pay, risk]) => `<div class="card contract"><span class="chip" style="background:var(--${cls})"></span><h3>${name}</h3>
+      <div class="rate">−${Math.round(100 * disc)}%<small>vs market rate</small></div>
+      <dl><div><dt>How you pay</dt><dd>${esc(pay)}</dd></div><div><dt>Risk</dt><dd>${esc(risk)}</dd></div></dl></div>`).join("");
+  }
+
+  function renderSteps() {
+    const a = DATA.assumptions;
+    const steps = [
+      ["Forecast a range", "For every product and night: a low, likely and high number of bookings, from rooms already on the books, last year, recent pace and season. Benchmarked against Amazon's Chronos-2 foundation model."],
+      ["Simulate futures", `${a.n_plan} possible futures in which related destinations rise and fall together, plus stress tests for regional shocks.`],
+      ["Optimise the mix", `Maximise expected profit minus a penalty on the worst 5% of futures and on every turned-away booking, within the budget and at most ${pct(a.region_share)} of it in one region.`],
+      ["Explain and check", `Every line of the buy list gets a reason. Each plan is then scored on ${num(a.n_eval)} fresh futures it never saw.`],
+    ];
+    $("steps").innerHTML = steps.map(([h, p], i) => `<div class="step"><span class="n">0${i + 1}</span><h3>${esc(h)}</h3><p>${esc(p)}</p></div>`).join("");
+    const prods = a.products, nh = prods.filter((p) => p.kind === "hotel").length, nf = prods.filter((p) => p.kind === "flight").length;
+    $("planner-lede").textContent = `A TBO-like portfolio of ${nh} hotel products and ${nf} flight routes, ${a.weeks} weeks from January 2027. The demand is synthetic and every parameter is listed under Method. Each of the ${DATA.budgets_inr.length * RISKS.length} plans was optimised on ${a.n_plan} futures and scored on ${num(a.n_eval)} new ones.`;
+  }
+
+  // ---------- controls ----------
+  function segButtons(el, items, current, onPick) {
+    el.innerHTML = items.map(([v, label]) => `<button type="button" aria-pressed="${String(v) === String(current)}" data-v="${esc(v)}">${esc(label)}</button>`).join("");
+    el.onclick = (e) => { const b = e.target.closest("button"); if (b) onPick(b.dataset.v); };
+  }
+  function renderControls() {
+    segButtons($("budget"), DATA.budgets_inr.map((b, i) => [i, cr(b, 1).replace(".0 Cr", " Cr")]), state.b, (v) => { state.b = +v; render(); });
+    segButtons($("risk"), RISKS.map((r) => [r, r]), state.risk, (v) => { state.risk = v; render(); });
+    const sel = $("shock");
+    sel.innerHTML = `<option value="none">None (base world)</option>` + Object.entries(SHOCKS).map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join("");
+    sel.value = state.shock;
+    sel.onchange = () => { state.shock = sel.value; render(); };
+  }
+  const cell = () => DATA.cells[String(state.b)][state.risk];
 
   // ---------- KPIs ----------
   function renderKpis() {
@@ -301,23 +555,23 @@ const DATA = /*__RESULTS__*/null;
   }
 
   // ---------- buy list ----------
-  const BUY_COLS = [["product", "Product · week", false], ["hard", "Hard block", true], ["soft", "Allotment", true],
-    ["prepaid_inr", "Prepaid", true], ["exp_profit_inr", "Expected profit", true], ["p_line_loss", "Chance of loss", true]];
+  const BUY_COLS = [["product", "Product · week", false, ""], ["hard", "Block", true, "sw-h"], ["soft", "Allot", true, "sw-s"],
+    ["prepaid_inr", "Prepaid", true, ""], ["exp_profit_inr", "Exp. profit", true, ""], ["p_line_loss", "Loss risk", true, ""]];
   function renderBuy() {
     const lines = [...linesOf(cell())];
     const key = state.sort;
     lines.sort((a, b) => key === "product" ? String(a.product).localeCompare(b.product) || a.week_start.localeCompare(b.week_start) : (b[key] ?? -Infinity) - (a[key] ?? -Infinity));
-    const shown = state.showAll ? lines : lines.slice(0, 20);
+    const shown = state.showAll ? lines : lines.slice(0, 12);
     const totalUnits = lines.reduce((s, l) => s + l.hard + l.soft, 0);
     $("buy-note").textContent = `${lines.length} commitments · ${num(totalUnits)} room-nights/seats`;
-    $("buy").innerHTML = `<thead><tr>${BUY_COLS.map(([k, l, n]) => `<th class="${n ? "n" : ""}" aria-sort="${k === key ? "descending" : "none"}"><button type="button" data-k="${k}">${l}${k === key ? " ▾" : ""}</button></th>`).join("")}</tr></thead><tbody>` +
+    $("buy").innerHTML = `<thead><tr>${BUY_COLS.map(([k, l, n, sw]) => `<th class="${n ? "n" : ""}" aria-sort="${k === key ? "descending" : "none"}"><button type="button" data-k="${k}" class="${sw}">${l}${k === key ? " ↓" : ""}</button></th>`).join("")}</tr></thead><tbody>` +
       shown.map((l) => `<tr><td><div>${esc(l.product)} · wk of ${esc(l.week_start.slice(5))}</div><details class="why"><summary>why</summary>${esc(l.reason)}</details></td>
         <td class="n">${num(l.hard)}</td><td class="n">${num(l.soft)}</td><td class="n">${cr(l.prepaid_inr, 2)}</td>
         <td class="n">${cr(l.exp_profit_inr, 2)}</td><td class="n">${pct(l.p_line_loss)}</td></tr>`).join("") + "</tbody>";
     $("buy").querySelector("thead").onclick = (e) => { const b = e.target.closest("button"); if (b) { state.sort = b.dataset.k; renderBuy(); } };
     const more = $("buy-more");
-    more.hidden = lines.length <= 20;
-    more.textContent = state.showAll ? "Show top 20" : `Show all ${lines.length}`;
+    more.hidden = lines.length <= 12;
+    more.textContent = state.showAll ? "Show top 12" : `Show all ${lines.length}`;
     more.onclick = () => { state.showAll = !state.showAll; renderBuy(); };
   }
 
@@ -343,10 +597,10 @@ const DATA = /*__RESULTS__*/null;
   // ---------- frontier (one line per risk level) ----------
   function renderFrontier() {
     const el = $("frontier");
-    const W = 560, H = 260, m = { l: 52, r: 96, t: 12, b: 34 };
+    const W = 560, H = 260, m = { l: 48, r: 96, t: 12, b: 34 };
     const xs = DATA.budgets_inr.map((b) => b / CR);
     const all = RISKS.flatMap((r) => DATA.frontier[r].mean.map((v) => v / CR));
-    const yt = niceTicks(Math.min(...all), Math.max(...all));  // line chart: zoom to the data so risk levels separate
+    const yt = niceTicks(Math.min(...all), Math.max(...all));
     const x0 = Math.min(...xs), x1 = Math.max(...xs);
     const X = (v) => m.l + (x1 === x0 ? 0.5 : (v - x0) / (x1 - x0)) * (W - m.l - m.r);
     const Y = (v) => H - m.b - (v - yt[0]) / (yt[yt.length - 1] - yt[0]) * (H - m.t - m.b);
@@ -370,30 +624,28 @@ const DATA = /*__RESULTS__*/null;
     labels.sort((a, b) => a.y - b.y);
     for (let k = 1; k < labels.length; k++) if (labels[k].y - labels[k - 1].y < 13) labels[k].y = labels[k - 1].y + 13;
     labels.forEach((l) => { s += `<text x="${W - m.r + 8}" y="${l.y + 4}" font-size="11" style="fill:var(--ink-2)">${esc(l.text)}</text>`; });
-    const ci = RISKS.indexOf(state.risk);
     const cy = DATA.frontier[state.risk].mean[state.b] / CR;
     s += `<circle cx="${X(xs[state.b])}" cy="${Y(cy)}" r="8" fill="none" style="stroke:var(--ink)" stroke-width="2"/>`;
-    s += `<line class="xh" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" style="stroke:var(--axis)" stroke-dasharray="3 3" visibility="hidden"/>`;
-    s += `<rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent" class="hit"/></svg>`;
+    s += `<line class="xh" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" style="stroke:var(--axis)" visibility="hidden"/>`;
+    s += `<rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent" class="hit" style="cursor:pointer"/></svg>`;
     el.innerHTML = s;
     $("front-legend").innerHTML = RISKS.map((r, i) => `<span><i style="background:${SERIES[i]}"></i>${esc(r)}</span>`).join("");
     const svg = el.querySelector("svg"), hit = svg.querySelector(".hit"), xh = svg.querySelector(".xh");
-    hit.addEventListener("mousemove", (e) => {
+    const nearest = (e) => {
       const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
       const p = pt.matrixTransform(svg.getScreenCTM().inverse());
       let j = 0; xs.forEach((x, k) => { if (Math.abs(X(x) - p.x) < Math.abs(X(xs[j]) - p.x)) j = k; });
+      return j;
+    };
+    hit.addEventListener("mousemove", (e) => {
+      const j = nearest(e);
       xh.setAttribute("x1", X(xs[j])); xh.setAttribute("x2", X(xs[j])); xh.setAttribute("visibility", "visible");
       const rows = RISKS.map((r, i) => `<div class="row"><span><span class="sw" style="background:${SERIES[i]}"></span>${esc(r)}</span><span>${cr(DATA.frontier[r].mean[j], 2)}</span></div>`).join("");
       const rect = el.getBoundingClientRect();
       tipAt(el, `<b>Budget ${cr(DATA.budgets_inr[j], 1)}</b>${rows}<div class="note">bad case: ${cr(DATA.frontier[state.risk].cvar95[j], 2)} (${esc(state.risk)})</div>`, e.clientX - rect.left, e.clientY - rect.top);
     });
     hit.addEventListener("mouseleave", () => { xh.setAttribute("visibility", "hidden"); hideTip(el); });
-    hit.addEventListener("click", (e) => {
-      const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
-      const p = pt.matrixTransform(svg.getScreenCTM().inverse());
-      let j = 0; xs.forEach((x, k) => { if (Math.abs(X(x) - p.x) < Math.abs(X(xs[j]) - p.x)) j = k; });
-      state.b = j; render();
-    });
+    hit.addEventListener("click", (e) => { state.b = nearest(e); render(); });
   }
 
   // ---------- profit distribution (base vs shock) ----------
@@ -401,7 +653,7 @@ const DATA = /*__RESULTS__*/null;
     const el = $("dist"), c = cell();
     const edges = c.histogram_base.edges.map((v) => v / CR);
     const series = [{ name: "No shock", color: SERIES[0], counts: c.histogram_base.counts }];
-    if (state.shock !== "none") series.push({ name: SHOCKS[state.shock].split(":")[0], color: SERIES[1], counts: c.shocks[state.shock].histogram.counts });
+    if (state.shock !== "none") series.push({ name: SHOCKS[state.shock].split(":")[0], color: SERIES[3], counts: c.shocks[state.shock].histogram.counts });
     const totals = series.map((s) => s.counts.reduce((a, b) => a + b, 0) || 1);
     const W = 560, H = 220, m = { l: 44, r: 12, t: 10, b: 34 };
     const ymax = Math.max(...series.flatMap((s, i) => s.counts.map((v) => v / totals[i])));
@@ -413,12 +665,12 @@ const DATA = /*__RESULTS__*/null;
     niceTicks(edges[0], edges[edges.length - 1], 6).filter((t) => t >= edges[0] && t <= edges[edges.length - 1]).forEach((t) => {
       s += `<text x="${X(t)}" y="${H - m.b + 18}" text-anchor="middle" font-size="11" style="fill:var(--muted)">₹${t.toFixed(Math.abs(t) < 10 ? 1 : 0)} Cr</text>`;
     });
-    if (edges[0] < 0 && edges[edges.length - 1] > 0) s += `<line x1="${X(0)}" x2="${X(0)}" y1="${m.t}" y2="${H - m.b}" style="stroke:var(--ink-2)" stroke-dasharray="4 3"/><text x="${X(0) + 4}" y="${m.t + 10}" font-size="11" style="fill:var(--ink-2)">loss ←</text>`;
+    if (edges[0] < 0 && edges[edges.length - 1] > 0) s += `<line x1="${X(0)}" x2="${X(0)}" y1="${m.t}" y2="${H - m.b}" style="stroke:var(--ink-2)"/><text x="${X(0) + 4}" y="${m.t + 10}" font-size="11" style="fill:var(--ink-2)">← loss</text>`;
     series.forEach((se, i) => {
       let d = `M${X(edges[0])},${Y(0)}`;
       se.counts.forEach((v, k) => { const y = Y(v / totals[i]); d += ` L${X(edges[k])},${y} L${X(edges[k + 1])},${y}`; });
       d += ` L${X(edges[edges.length - 1])},${Y(0)} Z`;
-      s += `<path d="${d}" style="fill:${se.color};stroke:${se.color}" fill-opacity="0.16" stroke-width="2" stroke-linejoin="round"/>`;
+      s += `<path d="${d}" style="fill:${se.color};stroke:${se.color}" fill-opacity="0.18" stroke-width="2" stroke-linejoin="round"/>`;
     });
     s += `<line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}" style="stroke:var(--axis)"/>`;
     s += `<rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent" class="hit"/></svg>`;
@@ -441,13 +693,13 @@ const DATA = /*__RESULTS__*/null;
     const el = $("exposure"), ex = cell().exposure;
     const rows = Object.entries(ex).map(([r, months]) => [r, Object.values(months).reduce((a, b) => a + b, 0), months]).sort((a, b) => b[1] - a[1]);
     const max = Math.max(1, ...rows.map((r) => r[1]));
-    const W = 520, rowH = 30, H = rows.length * rowH + 8, lw = 110, rw = 70;
+    const W = 520, rowH = 32, H = rows.length * rowH + 8, lw = 116, rw = 74;
     let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
     rows.forEach(([r, v], i) => {
       const y = i * rowH + 4, w = (v / max) * (W - lw - rw);
-      s += `<text x="${lw - 8}" y="${y + 17}" text-anchor="end" font-size="12" style="fill:var(--ink-2)">${esc(r)}</text>`;
-      s += `<rect x="${lw}" y="${y + 5}" width="${Math.max(w, v > 0 ? 2 : 0)}" height="16" rx="3" style="fill:var(--s1)" data-i="${i}"/>`;
-      s += `<text x="${lw + w + 6}" y="${y + 17}" font-size="12" style="fill:var(--ink)">${cr(v, 2)}</text>`;
+      s += `<text x="${lw - 10}" y="${y + 18}" text-anchor="end" font-size="12" style="fill:var(--ink-2)">${esc(r)}</text>`;
+      s += `<rect x="${lw}" y="${y + 6}" width="${Math.max(w, v > 0 ? 2 : 0)}" height="16" rx="4" style="fill:var(--hard)"/>`;
+      s += `<text x="${lw + w + 8}" y="${y + 18}" font-size="12" style="fill:var(--ink)">${cr(v, 2)}</text>`;
       s += `<rect x="0" y="${y}" width="${W}" height="${rowH}" fill="transparent" class="hit" data-i="${i}"/>`;
     });
     el.innerHTML = s + "</svg>";
@@ -483,18 +735,17 @@ const DATA = /*__RESULTS__*/null;
     const order = ["dynamic_only", "last_year_hard", "point_forecast_hard", "allot_ly_block_p25", "ours_0", "ours_0.25", "ours_1", "hindsight"].filter((p) => S[p]);
     $("bt-table").innerHTML = `<thead><tr><th>Policy</th><th class="n">Profit</th><th class="n">% of hindsight</th><th class="n">90% range</th><th class="n">Demand served</th><th class="n">Unsold block cost</th><th class="n">Worst round</th><th class="n">Rounds with a loss</th></tr></thead><tbody>` +
       order.map((p) => { const r = S[p]; return `<tr class="${p === "ours_0.25" ? "mine" : ""}"><td>${esc(POLICY[p] || p)}</td><td class="n">${eur(r.total_profit)}</td><td class="n">${r.pct_of_hindsight.toFixed(1)}%</td><td class="n">${r.pct_ci_lo != null ? r.pct_ci_lo.toFixed(0) + "–" + r.pct_ci_hi.toFixed(0) + "%" : "–"}</td><td class="n">${pct(r.fill_rate, 1)}</td><td class="n">${eur(r.unsold_hard_cost)}</td><td class="n">${eur(r.worst_batch)}</td><td class="n">${r.batches_with_loss}</td></tr>`; }).join("") + "</tbody>";
-    // bar chart: % of hindsight
     const el = $("bt-chart"), bars = order.filter((p) => p !== "hindsight");
-    const W = 560, rowH = 28, lw = 230, H = bars.length * rowH + 30;
-    const X = (v) => lw + Math.max(0, v) / 100 * (W - lw - 50);
+    const W = 560, rowH = 30, lw = 220, H = bars.length * rowH + 30;
+    const X = (v) => lw + Math.max(0, v) / 100 * (W - lw - 54);
     let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
     [0, 25, 50, 75, 100].forEach((t) => { s += `<line x1="${X(t)}" x2="${X(t)}" y1="0" y2="${H - 22}" style="stroke:var(--grid)"/><text x="${X(t)}" y="${H - 6}" text-anchor="middle" font-size="11" style="fill:var(--muted)">${t}%</text>`; });
     bars.forEach((p, i) => {
       const y = i * rowH + 4, v = S[p].pct_of_hindsight, mine = p.startsWith("ours_");
       const short = p === "allot_ly_block_p25" ? "Allot last year + block p25" : (POLICY[p] || p);
-      s += `<text x="${lw - 8}" y="${y + 15}" text-anchor="end" font-size="12" style="fill:var(--ink-2)">${esc(short)}</text>`;
-      s += `<rect x="${lw}" y="${y + 4}" width="${Math.max(2, X(v) - lw)}" height="16" rx="3" style="fill:${mine ? "var(--s1)" : "var(--axis)"}"/>`;
-      s += `<text x="${X(v) + 6}" y="${y + 16}" font-size="12" style="fill:var(--ink)">${v.toFixed(1)}%</text>`;
+      s += `<text x="${lw - 10}" y="${y + 16}" text-anchor="end" font-size="12" style="fill:${mine ? "var(--ink)" : "var(--ink-2)"}">${esc(short)}</text>`;
+      s += `<rect x="${lw}" y="${y + 5}" width="${Math.max(2, X(v) - lw)}" height="16" rx="4" style="fill:${mine ? "var(--ours)" : "var(--bar-muted)"}"/>`;
+      s += `<text x="${X(v) + 8}" y="${y + 17}" font-size="12" style="fill:var(--ink)">${v.toFixed(1)}%</text>`;
     });
     el.innerHTML = s + "</svg>";
     const fm = bt.forecast_metrics.all;
@@ -508,8 +759,7 @@ const DATA = /*__RESULTS__*/null;
     $("bt-sens").innerHTML = `<thead><tr><th>Scenario</th><th class="n">Blockwise · Balanced</th><th class="n">Allot last year + block p25</th><th class="n">Block the median forecast</th><th class="n">Block last year's volume</th><th class="n">Buy as needed only</th></tr></thead><tbody>` +
       sensRows.map(([label, rows]) => { const R = Object.fromEntries(rows.map((r) => [r.policy, r])); const f = (p) => R[p] ? R[p].pct_of_hindsight.toFixed(1) + "%" : "–";
         return `<tr><td>${esc(label)}</td><td class="n best">${f("ours_0.25")}</td><td class="n">${f("allot_ly_block_p25")}</td><td class="n">${f("point_forecast_hard")}</td><td class="n">${f("last_year_hard")}</td><td class="n">${f("dynamic_only")}</td></tr>`; }).join("") + "</tbody>";
-    const t = DATA.assumptions.terms;
-    $("bt-method").textContent = `Method: every 4 weeks, plan the 4 weeks of stays starting 8 weeks later using only what was known that day (rooms on the books, past nights, past prices), then score against what happened. Real: demand, booking dates, cancellations, prices, sold-out nights. Assumed: contract rates (hard block −${100 * t.hard_discount}%, allotment −${100 * t.soft_discount}%, buy as needed −${100 * t.dyn_discount}% vs market), allotment released ${t.release_days} days before arrival. Hindsight = the best plan possible with perfect knowledge of each round, under the same rules. Simplification: a night at ≥98% occupancy is treated as closed to buy-as-needed purchases for all of that night's demand, which is why "buy as needed only" scores so low; with a 100% threshold the ranking is unchanged (see sensitivity).`;
+    $("bt-method").textContent = `Method: every 4 weeks, plan the 4 weeks of stays starting 8 weeks later using only what was known that day (rooms on the books, past nights, past prices), then score against what happened. Real: demand, booking dates, cancellations, prices, sold-out nights. Assumed: contract rates (prepaid block −${100 * T.hard_discount}%, allotment −${100 * T.soft_discount}%, buy as needed −${100 * T.dyn_discount}% vs market), allotment released ${T.release_days} days before arrival. Hindsight = the best plan possible with perfect knowledge of each round, under the same rules. Simplification: a night at ≥98% occupancy is treated as closed to buy-as-needed purchases for all of that night's demand, which is why "buy as needed only" scores so low; with a 100% threshold the ranking is unchanged (see sensitivity).`;
   }
 
   // ---------- robustness ----------
@@ -528,21 +778,27 @@ const DATA = /*__RESULTS__*/null;
     $("rob").innerHTML = `<thead><tr><th rowspan="2">World</th>${pols.map((p) => `<th class="n" colspan="2">${esc(RPOL[p])}</th>`).join("")}</tr><tr>${pols.map(() => `<th class="n">Expected</th><th class="n">Bad case</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody>`;
     const warn = rob.status && rob.status !== "optimal" ? `Warning: the Balanced plan's solve returned ${esc(rob.status)}, so this table shows its fallback. ` : "";
     $("rob-headline").innerHTML = `${warn}The Balanced plan was optimised for the base world only. Against four simple rules it had the highest expected profit in <strong>${winsMean} of ${unseen.length} worlds it was not planned for</strong> and the best bad case (average of the worst 5% of futures) in <strong>${winsTail} of ${unseen.length}</strong>. Bold marks the best in each world.`;
-    $("rob-note").textContent = `budget ${cr(rob.budget_inr, 1)} · 4,000 fresh futures per world`;
+    $("rob-note").textContent = `Budget ${cr(rob.budget_inr, 1)} · 4,000 fresh futures per world.`;
   }
 
   function renderAssumptions() {
-    const a = DATA.assumptions, t = a.terms;
-    const terms = [["Hard block rate", `−${100 * t.hard_discount}% vs reference, prepaid, non-refundable`], ["Allotment rate", `−${100 * t.soft_discount}% vs reference, pay only for rooms used`],
-      ["Buy as needed", `−${100 * t.dyn_discount}% vs market, only when the market isn't sold out`], ["Allotment hold cost", `${100 * t.soft_hold_cost}% of rate per allotted unit (utilisation penalty)`],
-      ["Turned-away booking", `costs ${100 * t.stockout_penalty}% of rate in goodwill`], ["Allotment release", `${t.release_days} days before arrival`],
+    const a = DATA.assumptions;
+    const terms = [["Prepaid block rate", `−${100 * T.hard_discount}% vs reference, prepaid, non-refundable`], ["Allotment rate", `−${100 * T.soft_discount}% vs reference, pay only for rooms used`],
+      ["Buy as needed", `−${100 * T.dyn_discount}% vs market, only when the market isn't sold out`], ["Allotment hold cost", `${100 * T.soft_hold_cost}% of rate per allotted unit`],
+      ["Turned-away booking", `costs ${100 * T.stockout_penalty}% of rate in goodwill`], ["Allotment release", `${T.release_days} days before arrival`],
       ["Allotment size", a.soft_cap_rule], ["Region limit", `at most ${pct(a.region_share)} of prepaid budget in one region`],
       ["Scenarios", `plan on ${a.n_plan}, score on ${a.n_eval} fresh (seeds ${a.plan_seed} / ${a.eval_seed})`]];
     const prods = a.products.map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(p.region)}</td><td class="n">${num(p.base_weekly_units)}</td><td class="n">₹${num(p.price_inr)}</td><td class="n">${pct(p.early_share)}</td></tr>`).join("");
-    $("assumptions").innerHTML = `<div><h3>Contract terms</h3><table><tbody>${terms.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</tbody></table></div>
-      <div><h3>Shocks and test worlds</h3><table><tbody>${Object.values(SHOCKS).map((l) => `<tr><td>${esc(l)}</td></tr>`).join("")}${Object.keys(a.worlds).map((w) => `<tr><td>World: ${esc(w)}</td></tr>`).join("")}${a.events.map((e) => `<tr><td>Event: ${esc(e.name)} (+${Math.round(100 * (e.uplift - 1))}%)</td></tr>`).join("")}</tbody></table></div>
-      <div class="scroll"><h3>Synthetic products (base weekly volume, price, share booked 3+ weeks ahead)</h3><table><thead><tr><th>Product</th><th>Region</th><th class="n">Units/wk</th><th class="n">Price</th><th class="n">Early</th></tr></thead><tbody>${prods}</tbody></table></div>`;
-    $("gen-note").textContent = `Grid computed in ${Math.round(DATA.generated_seconds / 60)} min on a laptop CPU. Reference budget ${cr(DATA.b_star_inr, 1)} is what the unconstrained Max-profit plan would prepay.`;
+    $("assumptions").innerHTML = `<div><h4>Contract terms</h4><table><tbody>${terms.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</tbody></table></div>
+      <div><h4>Shocks and test worlds</h4><table><tbody>${Object.values(SHOCKS).map((l) => `<tr><td>${esc(l)}</td></tr>`).join("")}${Object.keys(a.worlds).map((w) => `<tr><td>World: ${esc(w)}</td></tr>`).join("")}${a.events.map((e) => `<tr><td>Event: ${esc(e.name)} (+${Math.round(100 * (e.uplift - 1))}%)</td></tr>`).join("")}</tbody></table></div>
+      <div class="scroll"><h4>Synthetic products (weekly volume, price, share booked 3+ weeks ahead)</h4><table><thead><tr><th>Product</th><th>Region</th><th class="n">Units/wk</th><th class="n">Price</th><th class="n">Early</th></tr></thead><tbody>${prods}</tbody></table></div>`;
+    $("gen-note").textContent = `Plans computed in ${Math.round(DATA.generated_seconds / 60)} min on a laptop CPU. Reference budget ${cr(DATA.b_star_inr, 1)} is what the unconstrained Max-profit plan would prepay.`;
+    const limits = [
+      ["Real", "Bookings, booking dates, cancellations, prices paid and sold-out nights at two hotels (2015–17), and 15 years of official Singapore arrivals, room rates and occupancy."],
+      ["Assumed", `Contract discounts (−${100 * T.hard_discount}% / −${100 * T.soft_discount}% / −${100 * T.dyn_discount}%), the ${T.release_days}-day free release, the goodwill cost of a lost booking, and the whole demo portfolio. None of it is TBO data.`],
+      ["Not built yet", "When to buy (purchase timing), selling-price recommendations, and search and look-to-book signals, which only TBO has. The design takes them as inputs."],
+    ];
+    $("limits").innerHTML = limits.map(([h, p]) => `<div class="panel"><p class="eyebrow">${esc(h)}</p><p>${esc(p)}</p></div>`).join("");
   }
 
   // ---------- forecaster benchmark ----------
@@ -554,7 +810,7 @@ const DATA = /*__RESULTS__*/null;
       b.rows.map((r) => `<tr class="${r.forecaster === b.headline ? "mine" : ""}"><td>${esc(r.label)}${r.forecaster === b.headline ? " · <em>pre-declared headline</em>" : ""}</td>
         <td class="n">${r.pct_of_hindsight.toFixed(1)}% (${r.pct_ci_lo.toFixed(0)}–${r.pct_ci_hi.toFixed(0)})</td><td class="n">${pct(r.wape, 1)}</td><td class="n">${r.pinball.toFixed(2)}</td>
         <td class="n">${pct(r.coverage_80)}</td><td class="n">${r.coverage_90 == null ? "–" : pct(r.coverage_90)}</td></tr>`).join("") + "</tbody>";
-    $("bench-note").textContent = "Every forecaster drives the same real-bookings backtest (same rounds, rules and random draws). The headline was fixed before running: 'auto' picks, each round, the model with the lowest error on nights that had already happened.";
+    $("bench-note").textContent = "Every forecaster drives the same real-bookings backtest (same rounds, rules and random draws). The headline was fixed before running: 'auto' picks, each round, the model with the lowest error on nights that had already happened. Profit ranges overlap, so the profit differences are within noise; the accuracy and calibration differences are clearer.";
   }
 
   // ---------- Singapore real-shock replay ----------
@@ -572,23 +828,23 @@ const DATA = /*__RESULTS__*/null;
     let s = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
     const c0 = tl.findIndex((r) => r.target >= "2020-02"), c1 = tl.findIndex((r) => r.target >= "2022-01");
     if (opts.breaker) {
-      tl.forEach((r, i) => { if (r.breaker) s += `<rect x="${X(i) - (W - m.l - m.r) / n / 2}" y="${m.t}" width="${(W - m.l - m.r) / n}" height="${H - m.t - m.b}" style="fill:var(--s2)" opacity="0.13"/>`; });
-    } else if (c0 >= 0 && c1 > c0) s += `<rect x="${X(c0)}" y="${m.t}" width="${X(c1) - X(c0)}" height="${H - m.t - m.b}" style="fill:var(--grid)" opacity="0.6"/><text x="${X(c0) + 6}" y="${m.t + 12}" font-size="11" style="fill:var(--ink-2)">COVID</text>`;
-    yt.forEach((t) => { s += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(t)}" y2="${Y(t)}" style="stroke:var(--grid)"/><text x="${m.l - 6}" y="${Y(t) + 4}" text-anchor="end" font-size="11" style="fill:var(--muted)">${num(t)}</text>`; });
+      tl.forEach((r, i) => { if (r.breaker) s += `<rect x="${X(i) - (W - m.l - m.r) / n / 2}" y="${m.t}" width="${(W - m.l - m.r) / n}" height="${H - m.t - m.b}" style="fill:var(--ink)" opacity="0.06"/>`; });
+    } else if (c0 >= 0 && c1 > c0) s += `<rect x="${X(c0)}" y="${m.t}" width="${X(c1) - X(c0)}" height="${H - m.t - m.b}" style="fill:var(--ink)" opacity="0.05"/><text x="${X(c0) + 8}" y="${m.t + 14}" font-size="11" style="fill:var(--ink-2)">COVID</text>`;
+    yt.forEach((t) => { s += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(t)}" y2="${Y(t)}" style="stroke:var(--grid)"/><text x="${m.l - 8}" y="${Y(t) + 4}" text-anchor="end" font-size="11" style="fill:var(--muted)">${num(t)}</text>`; });
     tl.forEach((r, i) => { if (r.target.endsWith("-01-01") && (+r.target.slice(0, 4)) % 2 === 1) s += `<text x="${X(i)}" y="${H - 6}" text-anchor="middle" font-size="11" style="fill:var(--muted)">${r.target.slice(0, 4)}</text>`; });
     series.forEach((se) => {
       if (se.lo) {
         const up = se.hi.map((v, i) => `${X(i)},${Y(v)}`).join(" "), dn = se.lo.map((v, i) => `${X(i)},${Y(v)}`).reverse().join(" ");
-        s += `<polygon points="${up} ${dn}" style="fill:${se.color}" fill-opacity="0.16"/>`;
+        s += `<polygon points="${up} ${dn}" style="fill:${se.color}" fill-opacity="0.18"/>`;
       } else if (se.area) {
         const base = se.base || se.ys.map(() => 0);
         const up = se.ys.map((v, i) => `${X(i)},${Y(v + base[i])}`).join(" "), dn = base.map((v, i) => `${X(i)},${Y(v)}`).reverse().join(" ");
-        s += `<polygon points="${up} ${dn}" style="fill:${se.color}" fill-opacity="0.75"/>`;
+        s += `<polygon points="${up} ${dn}" style="fill:${se.color}" fill-opacity="0.8"/>`;
       } else {
         s += `<polyline points="${se.ys.map((v, i) => `${X(i)},${Y(v)}`).join(" ")}" fill="none" style="stroke:${se.color}" stroke-width="2" ${se.dash ? 'stroke-dasharray="5 4"' : ""} stroke-linejoin="round"/>`;
       }
     });
-    s += `<line class="xh" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" style="stroke:var(--ink-2)" stroke-dasharray="3 3" visibility="hidden"/>`;
+    s += `<line class="xh" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" style="stroke:var(--ink-2)" visibility="hidden"/>`;
     s += `<rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent" class="hit"/></svg>`;
     el.innerHTML = s;
     const svg = el.querySelector("svg"), hit = svg.querySelector(".hit"), xh = svg.querySelector(".xh");
@@ -618,18 +874,18 @@ const DATA = /*__RESULTS__*/null;
       `<strong>Risk:</strong> through COVID Balanced lost ${sgd(-cov["ours_0.25"].profit)} vs ${sgd(-cov[bestCovidRule].profit)} for the best rule, and its worst 5% of months averaged ${sgd(ours.worst5_month_avg)} vs ${sgd(S[bestTailRule].worst5_month_avg)}.` +
       ((sg.breaker_months || []).length ? ` The circuit breaker stopped prepaid blocks for ${sg.breaker_months.length} months (${sg.breaker_months[0].slice(0, 7)} to ${sg.breaker_months[sg.breaker_months.length - 1].slice(0, 7)}) while the forecast was more than ${br}× off; the table also gives every simple rule the identical breaker.` : "");
     const k = sg.timeline.map((r) => r.demand);
-    $("sg-legend-1").innerHTML = `<span><i style="background:var(--ink)"></i>Demand implied by official arrivals (room-nights, assumed 0.05 per arrival)</span><span><i style="background:var(--s1)"></i>Blockwise forecast, median and 10–90% band</span>`;
+    $("sg-legend-1").innerHTML = `<span><i style="background:var(--ink)"></i>Demand implied by official arrivals (room-nights, assumed 0.05 per arrival)</span><span><i style="background:var(--ours)"></i>Blockwise forecast, median and 10–90% band</span>`;
     monthChart($("sg-demand"), tl, [
-      { lo: tl.map((r) => r.p10), hi: tl.map((r) => r.p90), color: "var(--s1)" },
-      { ys: tl.map((r) => r.median), color: "var(--s1)", dash: true },
+      { lo: tl.map((r) => r.p10), hi: tl.map((r) => r.p90), color: "var(--ours)" },
+      { ys: tl.map((r) => r.median), color: "var(--ours)", dash: true },
       { ys: k, color: "var(--ink)" },
     ], { tip: (r) => `<b>${r.target.slice(0, 7)}</b><div class="row"><span>Demand</span><span>${num(r.demand)}</span></div><div class="row"><span>Forecast median</span><span>${num(r.median)}</span></div><div class="row"><span>10–90% band</span><span>${num(r.p10)}–${num(r.p90)}</span></div><div class="note">hotel occupancy ${r.occ_all.toFixed(0)}% · rate S$${r.rate_all.toFixed(0)} · model ${esc(r.method)}</div>` });
-    $("sg-legend-2").innerHTML = `<span><i style="background:var(--s2)"></i>Prepaid hard blocks</span><span><i style="background:var(--s3)"></i>Free-release allotments</span><span><i style="background:var(--ink)"></i>Demand</span><span><i style="background:var(--s2);opacity:0.25;height:10px"></i>Circuit breaker on: no prepaid blocks</span>`;
+    $("sg-legend-2").innerHTML = `<span><i style="background:var(--hard)"></i>Prepaid blocks</span><span><i style="background:var(--soft)"></i>Free-release allotments</span><span><i style="background:var(--ink)"></i>Demand</span><span><i style="background:var(--ink);opacity:0.18;height:10px"></i>Circuit breaker on: no prepaid blocks</span>`;
     monthChart($("sg-commit"), tl, [
-      { ys: tl.map((r) => r.ours_hard), area: true, color: "var(--s2)" },
-      { ys: tl.map((r) => r.ours_soft), base: tl.map((r) => r.ours_hard), area: true, color: "var(--s3)" },
+      { ys: tl.map((r) => r.ours_hard), area: true, color: "var(--hard)" },
+      { ys: tl.map((r) => r.ours_soft), base: tl.map((r) => r.ours_hard), area: true, color: "var(--soft)" },
       { ys: k, color: "var(--ink)" },
-    ], { h: 200, breaker: true, tip: (r) => `<b>${r.target.slice(0, 7)} · Blockwise Balanced${r.breaker ? " · breaker on" : ""}</b><div class="row"><span>Hard blocks</span><span>${num(r.ours_hard)}</span></div><div class="row"><span>Allotments</span><span>${num(r.ours_soft)}</span></div><div class="row"><span>Demand</span><span>${num(r.demand)}</span></div><div class="note">median-forecast rule would have blocked ${num(r.pf_hard)}${r.breaker ? ` · forecast recently off by ${r.error_ratio.toFixed(1)}×` : ""}</div>` });
+    ], { h: 200, breaker: true, tip: (r) => `<b>${r.target.slice(0, 7)} · Blockwise Balanced${r.breaker ? " · breaker on" : ""}</b><div class="row"><span>Prepaid blocks</span><span>${num(r.ours_hard)}</span></div><div class="row"><span>Allotments</span><span>${num(r.ours_soft)}</span></div><div class="row"><span>Demand</span><span>${num(r.demand)}</span></div><div class="note">median-forecast rule would have blocked ${num(r.pf_hard)}${r.breaker ? ` · forecast recently off by ${r.error_ratio.toFixed(1)}×` : ""}</div>` });
     const pols = ["dynamic_only", "last_year_hard", "point_forecast_hard", "allot_ly_block_p25", "last_year_hard_brk", "point_forecast_hard_brk", "allot_ly_block_p25_brk", "ours_0", "ours_0.25", "ours_1"];
     const pers = Object.keys(P);
     $("sg-table").innerHTML = `<thead><tr><th>Policy</th><th class="n">% of hindsight, all</th><th class="n">COVID 2020–21</th><th class="n">Recovery 2022–23</th><th class="n">2011–19 %</th><th class="n">2024–26 %</th><th class="n">Worst-5% month</th></tr></thead><tbody>` +
@@ -648,12 +904,23 @@ const DATA = /*__RESULTS__*/null;
     $("sg-method").textContent = `Real (SingStat, Singapore Open Data Licence): monthly visitor arrivals resident in India (M550001), average room rate and occupancy by hotel size band (M550081). Decisions at the start of each month use data published by then (through two months earlier) and commit for two months ahead. Assumed: demand = ${a.kappa} room-nights per Indian arrival split ${a.tier_share.map((x) => Math.round(100 * x) + "%").join("/")} across small/medium/large hotels (scaling it does not change the percentages); ${Math.round(100 * a.early_share)}% booked 3+ weeks ahead (from the real hotel bookings); buying as needed is possible below ${a.occ_free}% occupancy and impossible above ${a.occ_full}%; contract rates as in the main backtest; one random draw drives arrivals, occupancy and rates together in planning scenarios (shocks hit all three). Uncertainty = exponentially weighted quantiles of past log forecast errors (half-life 6 months, inspired by weighted conformal prediction), calibrating only the band width around the model's own median. Changes made after seeing replay results, all disclosed: seasonal-level forecast instead of seasonal naive (which exploded in the recovery); the safeguards (no prepaid blocks while the forecast was more than ${a.breaker_ratio}× off in any of the last ${a.breaker_lookback} published months; forecast quantiles capped at ${a.support_mult}× the highest month ever published); width-only calibration. Rules marked "+ same breaker" get the identical breaker. SingStat data is the current revised release, not what was published at the time; Chronos-2 was pretrained in 2025, after many of the replayed months.`;
   }
 
+  // ---------- nav: highlight the section in view ----------
+  function scrollSpy() {
+    const links = [...document.querySelectorAll(".nav nav a")];
+    const byId = Object.fromEntries(links.map((a) => [a.getAttribute("href").slice(1), a]));
+    if (!("IntersectionObserver" in window)) return;
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((en) => { if (en.isIntersecting) links.forEach((a) => a.setAttribute("aria-current", String(a === byId[en.target.id]))); });
+    }, { rootMargin: "-45% 0px -50% 0px" });
+    Object.keys(byId).forEach((id) => { const s = $(id); if (s) io.observe(s); });
+  }
+
   function render() {
     save();
     renderControls(); renderKpis(); renderBuy(); renderFrontier(); renderDist(); renderExposure(); renderGaps();
   }
   render();
-  for (const section of [renderBacktest, renderBench, renderSingapore, renderRobustness, renderAssumptions]) {
+  for (const section of [renderHero, renderProof, renderContracts, renderSteps, renderBacktest, renderBench, renderSingapore, renderRobustness, renderAssumptions, scrollSpy]) {
     try { section(); } catch (e) { console.error("section failed to render:", section.name, e); }  // one bad section must not blank the rest
   }
 })();

@@ -21,10 +21,14 @@ DESC = ("Which hotel rooms and flight seats to lock in, how many, and under whic
 def build(out_dir: Path) -> Path:
     html = SRC.read_text()
     html = re.sub(r'<meta name="claude:[^"]*" content="[^"]*">\n?', "", html)
-    html = re.sub(r"<title>.*?</title>\n?", "", html, count=1, flags=re.S)
+    # the template opens with <title> and font <link>s before its <style>: move them into <head>
+    body_start = html.index("<body>") + len("<body>")
+    style_at = html.index("<style>", body_start)
+    lead = re.sub(r"<title>.*?</title>\n?", "", html[body_start:style_at], flags=re.S).strip()
+    html = html[:body_start] + "\n" + html[style_at:]
     head = (f"<title>{TITLE}</title>\n<meta name=\"description\" content=\"{DESC}\">\n"
             f"<meta property=\"og:title\" content=\"{TITLE}\">\n<meta property=\"og:description\" content=\"{DESC}\">\n"
-            "<meta name=\"theme-color\" content=\"#f9f9f7\">\n</head>")
+            f"<meta name=\"theme-color\" content=\"#0a0b0d\">\n{lead}\n</head>")
     assert html.count("</head>") == 1, "expected one </head> in the standalone page"
     html = html.replace("</head>", head, 1)
     out_dir.mkdir(parents=True, exist_ok=True)
