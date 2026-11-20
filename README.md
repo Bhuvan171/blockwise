@@ -177,6 +177,7 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 .venv/bin/python -m invopt.cli singapore  # real-shock replay, 2011–2026 (~1 min; Chronos-2 on CPU)
 .venv/bin/python -m invopt.cli bench      # forecaster benchmark (~1 h on a laptop)
 .venv/bin/python -m invopt.cli page       # refresh the page with the latest replay / benchmark
+.venv/bin/python scripts/build_site.py    # static website → ../blockwise-site (deployed at https://bhuvan171.github.io/blockwise/)
 open out/blockwise_standalone.html
 ```
 Sensitivity runs: `python -m invopt.cli backtest --soft-cap-mult none --tag _uncapped`, `--soldout-tau 1.0 --tag _tau1`, `--budget-share 0.5 --tag _budget0.5`, `--hard-discount 0.25 --soft-discount 0.15 --tag _rates_low`, `--hard-discount 0.35 --soft-discount 0.25 --tag _rates_high`, then `grid` and `page` again.
