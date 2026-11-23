@@ -19,52 +19,59 @@ It optimises expected profit minus a chosen weight on the **bad case** (the aver
 ### 1. Real bookings: walk-forward backtest (EUR)
 Data: the public *Hotel booking demand* dataset (António, de Almeida & Nunes, *Data in Brief* 22, 2019). It covers two hotels in Portugal, 2015–2017, and we use the **Offline TA/TO** (travel agent / tour operator) segment as the B2B stream.
 
-Every 4 weeks we plan the 4 weeks of stays starting 8 weeks later, using **only what was known that day**, then score against what really happened. That covers 15 planning rounds × 2 hotels, Jul 2016 – Aug 2017. Demand, booking dates, cancellations, prices and sold-out nights are real; contract rates are assumptions. The 90% range comes from resampling the 15 rounds.
+Every 4 weeks we plan the 4 weeks of stays starting 8 weeks later, using **only what was known that day**, then score against what really happened. That covers 15 planning rounds × 2 hotels, Jul 2016 – Aug 2017. Prepaid spend is **capped at 50% of last year's volume** at block cost, and buying as needed stops on the date a night **really filled up** in the bookings, rather than for the whole night. Demand, booking dates, cancellations, prices and fill dates are real; contract rates are assumptions. The 90% range comes from resampling the 15 rounds.
 
 | Policy | Profit | % of perfect hindsight (90% range) | Demand served | Unsold block cost | Worst round | Rounds with a loss |
 |---|---|---|---|---|---|---|
-| Buy as needed only | €20,438 | 2.4% (−5–11) | 57.8% | €0 | −€19,165 | 6 |
-| Block last year's volume | €257,988 | 30.7% (2–51) | 91.3% | €553,854 | −€72,613 | 4 |
-| Block the median forecast | €522,395 | 62.1% (51–70) | 94.3% | €342,100 | −€2,097 | 2 |
-| Allot last year's volume + block the 25th-percentile forecast | €674,542 | 80.2% (73–85) | 98.8% | €158,987 | €11,147 | 0 |
-| Blockwise · Max profit | €746,875 | 88.8% (85–92) | 97.6% | €64,081 | €11,595 | 0 |
-| **Blockwise · Balanced** | **€746,835** | **88.8% (85–91)** | 97.1% | €44,598 | €12,216 | **0** |
-| Blockwise · Careful | €739,059 | 87.8% (85–90) | 96.2% | €27,603 | €12,895 | 0 |
-| Perfect hindsight (upper bound) | €841,458 | 100% | 98.6% | €22,151 | €17,009 | 0 |
+| Buy as needed only | €304,252 | 37.6% (34–42) | 99.8% | €0 | €5,334 | 0 |
+| Block last year's volume | €608,374 | 75.1% (71–79) | 100.0% | €53,929 | €12,952 | 0 |
+| Block the median forecast | €608,484 | 75.1% (72–78) | 100.0% | €48,356 | €13,439 | 0 |
+| Allot last year's volume + block the 5th-percentile forecast | €727,342 | 89.8% (87–92) | 100.0% | €18,738 | €12,573 | 0 |
+| Allot last year's volume + block the 10th-percentile forecast | €726,914 | 89.7% (86–92) | 100.0% | €27,351 | €12,320 | 0 |
+| Allot last year's volume + block the 25th-percentile forecast (fixed in advance) | €721,623 | 89.1% (84–93) | 100.0% | €41,198 | €13,769 | 0 |
+| Allot last year's volume + block the median forecast | €716,895 | 88.5% (83–93) | 100.0% | €48,356 | €13,976 | 0 |
+| Blockwise · Max profit | €754,534 | 93.2% (91–95) | 100.0% | €24,199 | €12,093 | 0 |
+| **Blockwise · Balanced** | **€750,527** | **92.7% (90–95)** | 100.0% | €19,748 | €12,216 | 0 |
+| Blockwise · Careful | €743,958 | 91.9% (89–94) | 100.0% | €14,102 | €12,895 | 0 |
+| Perfect hindsight (upper bound) | €809,936 | 100.0% | 100.0% | €5,085 | €17,009 | 0 |
 
-**The honest comparison** is with the two-contract rule, the strongest simple policy we found; it was fixed before seeing its result. Blockwise beats it by **8.6 points of hindsight profit**:
-- 90% range 4.3–14.2 points, from a paired resampling of rounds;
-- positive in every resample;
-- 13 of 15 rounds won;
-- it also cuts unsold-block cost from €159k to €45k.
+**The honest comparison** is with the best fixed buying rule, **even one picked with hindsight**: allot last year's volume and block the 5th-percentile forecast (89.8%).
+- Blockwise (Balanced) is ahead by **2.9 points** of hindsight profit (90% range 1.0–4.9) and wins **12 of 15** rounds.
+- Against the rule fixed before seeing any result (allot + block the 25th percentile, 89.1%), it is ahead by 3.6 points (90% range −1.3 to 9.5), winning 8 of 15 rounds.
+- Unsold prepaid cost is **€19.7k vs €41.2k** for the rule fixed in advance. The hindsight-picked rule holds slightly less (€18.7k).
+- With the cap and real fill dates, every policy serves essentially all demand, so the differences are in profit and unsold stock.
 
-The other baselines show how much the *contract mix* alone is worth (blocks only → blocks + allotments).
+**Sensitivity:** share of perfect-hindsight profit. Every row is a full re-run that changes one assumption. Blockwise leads the best fixed rule in **all 10**; in 5 of them the 90% range includes zero.
 
-**Sensitivity:** share of perfect-hindsight profit. Every row is a full re-run (`out/backtest_*.json`).
-
-| Scenario | Blockwise · Balanced | Allot last year + block p25 | Block median forecast | Block last year | Buy as needed |
+| Scenario (full re-run each) | Blockwise · Balanced | Best fixed rule, picked with hindsight | Rule fixed in advance (allot + block p25) | Lead over best rule, points (90% range) | Rounds won |
 |---|---|---|---|---|---|
-| Headline (allotment ≤ last year's production; sold out at 98% occupancy) | **88.8%** | 80.2% | 62.1% | 30.7% | 2.4% |
-| Allotments not capped | 88.9% | 78.7% | 60.9% | 30.1% | 2.4% |
-| Sold out only at 100% of capacity | 89.4% | 79.9% | 63.5% | 33.5% | 21.8% |
-| Budget capped at 50% of last year's volume at block cost | 91.0% | 88.9% | 58.4% | 58.6% | 2.6% |
-| Smaller contract discounts (block −25%, allotment −15%) | 85.9% | 74.2% | 51.9% | 13.2% | 2.9% |
-| Larger contract discounts (block −35%, allotment −25%) | 90.4% | 84.2% | 68.9% | 42.9% | 2.1% |
+| **Headline** (prepaid capped at 50% of last year's volume; sold-out nights from real fill dates) | **92.7%** | 89.8% (allot + block p5) | 89.1% | +2.9 (1.0 to 4.9) | 12 of 15 |
+| Before review: no budget cap, a full night closed to buy-as-needed for all its bookings | 88.8% | 86.0% (allot + block p5) | 80.2% | +2.7 (−0.1 to 4.7) | 12 of 15 |
+| No budget cap | 90.3% | 86.8% (allot + block p5) | 79.7% | +3.5 (0.7 to 5.6) | 12 of 15 |
+| Re-plan every week (60 rounds) instead of every 4 weeks | 93.1% | 90.8% (allot + block p5) | 89.7% | +2.3 (0.5 to 4.1) | 44 of 60 |
+| One block size per night instead of per week | 87.8% | 84.8% (allot + block p25) | 84.8% | +3.0 (−0.8 to 6.5) | 10 of 15 |
+| TBO-like thin margins (block −15%, allotment −10%, buy as needed −5%) | 85.5% | 81.0% (allot + block p5) | 76.6% | +4.5 (−1.5 to 13.5) | 10 of 15 |
+| Smaller contract discounts (block −25%, allotment −15%) | 90.3% | 87.6% (allot + block p5) | 85.9% | +2.7 (−0.9 to 6.9) | 9 of 15 |
+| Larger contract discounts (block −35%, allotment −25%) | 93.8% | 91.4% (allot + block p10) | 91.2% | +2.4 (0.4 to 4.5) | 12 of 15 |
+| Sold out only at 100% of capacity | 92.7% | 89.8% (allot + block p5) | 89.1% | +2.9 (1.0 to 4.9) | 12 of 15 |
+| Allotments not capped at last year's production | 92.9% | 88.6% (allot + block p5) | 87.9% | +4.3 (1.4 to 5.6) | 12 of 15 |
+| Decide 120 days ahead instead of 56 | 89.8% | 88.0% (allot + block p5) | 87.1% | +1.8 (−1.3 to 4.5) | 10 of 15 |
 
 **Forecast quality**, 8–12 weeks ahead, per hotel-night (840 nights): typical error (WAPE) **23%** vs 50% for "same night last year". The 10–90% band held the real value 74% of the time; the target is 80%, so the bands are slightly narrow.
 
 **Disclosures:**
+- **Changed after two independent reviews:** the budget cap is now on in the headline, and the whole-night sold-out rule was replaced by real fill dates (that rule made "buy as needed only" look far worse). The pre-review setup is the "Before review" row above; it was the headline in Round 1 (88.8%).
 - The allotment cap (≤ last year's production) was added *after* the first full run, because unlimited free allotments were unrealistic. It lowers our own profit; the uncapped run is shown above.
-- Sold-out modelling is a simplification. A night at ≥ 98% occupancy is closed to buy-as-needed purchases for all of that night's demand, which is pessimistic for "buy as needed only". At a 100% threshold the ranking is unchanged.
+- **Where these numbers come from:** the run published on the live site (`gh-pages`). The code for the review changes (real fill dates, the extra fixed rules, and the weekly, per-night, thin-margin and 120-day re-runs) is not on `main` yet; `main` reproduces the pre-review run.
 
 ### 2. TBO-like portfolio (synthetic, INR, Jan–Mar 2027)
 12 destinations × 2 hotel tiers + 4 flight seat routes, 13 weeks. Regional correlation, seasonality and event weeks are included; every parameter is a labelled assumption (`src/invopt/portfolio.py`). Plans are optimised on 150 simulated futures and **scored on 4,000 fresh ones**.
 
-- **Budget frontier (Balanced):** a ₹50.5 Cr budget → ₹71.6 Cr expected profit · ₹101 Cr → ₹82.4 Cr · ₹152 Cr → ₹90.9 Cr · ₹202.5 Cr budget (₹188.5 Cr used) → ₹95.6 Cr. At ₹152 Cr the next ₹1 Cr of budget adds **₹0.09 Cr** to expected profit, measured on fresh futures.
+- **Budget frontier (Balanced):** a ₹46 Cr budget → ₹28.9 Cr expected profit · ₹92 Cr → ₹34.0 Cr · ₹137.5 Cr → ₹37.4 Cr · ₹183.5 Cr → ₹39.6 Cr · ₹229.5 Cr budget (₹206.9 Cr used) → ₹39.6 Cr. At ₹137.5 Cr the next ₹1 Cr of budget adds **₹0.05 Cr** to expected profit; from ₹183.5 Cr it adds nothing.
 - **Stress tests** on every plan: a Middle East disruption, an Indian airline collapse, and a rupee slide.
 - **Robustness:** the Balanced plan, optimised for the base world only, was scored in **six worlds it was not planned in** (demand ±20%, stronger seasons, higher correlation, later bookings, more volatile demand). It was compared with four simple rules, including "allot expected volume + block the 25th percentile":
-  - **Best bad case in 6 of 6**, often by a wide margin: demand −20% → ₹37.4 Cr vs ₹23.3 Cr for the two-contract rule; higher correlation → ₹62.3 Cr vs ₹51.6 Cr.
-  - **Best expected profit in 5 of 6.** With demand +20%, the rule's bigger commitments earn more on average (₹111.2 Cr vs ₹107.5 Cr) but have a worse bad case (₹89.1 Cr vs ₹92.3 Cr).
+  - **Best bad case in 6 of 6**, often by a wide margin: demand −20% → −₹2.1 Cr vs −₹19.1 Cr for the two-contract rule; higher correlation → ₹14.6 Cr vs ₹1.8 Cr.
+  - **Best expected profit in 5 of 6.** With demand +20%, the rule's bigger commitments earn more on average (₹47.3 Cr vs ₹46.2 Cr) but have a worse bad case (₹26.5 Cr vs ₹32.3 Cr).
 
 Open the decision page: `out/blockwise_standalone.html`. It has budget, risk and shock controls, the buy list with a reason per line, the frontier, the profit distribution, exposure by region, where a new supplier would help most, and the proof tables.
 

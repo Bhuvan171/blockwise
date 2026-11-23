@@ -639,7 +639,7 @@ SWOT = [
         "Sold-out event weeks: buying as needed fails just when demand peaks, so planning ahead pays most",
         "Quote desk: price a supplier's quote before signing and negotiate from evidence",
         "Flights: add deposit and name-change terms to the 4 seat routes already modelled",
-        "Finance budgeting: the frontier shows where more budget stops paying (₹0.09 Cr per extra ₹1 Cr at ₹152 Cr)",
+        "Finance budgeting: the frontier shows where more budget stops paying (at ₹137.5 Cr the next ₹1 Cr adds only ₹0.05 Cr)",
         "Open forecasting models keep improving: adding Chronos-2 to our ensemble gave the lowest error (21.8%)",
     ]),
     ("Threats", "outside risks to the plan", "pink", [
