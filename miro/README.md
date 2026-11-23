@@ -15,7 +15,7 @@ This folder builds our design-thinking board in Miro through Miro's REST API. Th
 | 8 Ideate · Product mind map | Blockwise's inputs, forecast, scenarios, optimiser, safeguards, outputs and proof |
 | 9 Prototype · How it works | The pipeline, the 3 contract types and the safeguards |
 | 10 Prototype · Storyboard | "The expo week" in 6 drawn panels |
-| 11 Test · Evidence | Results table (including profit in euros and the demand-served trade-off) and the limits we state up front |
+| 11 Test · Evidence | Results table (the live site's current run: prepaid capped at 50% of last year's volume) and the limits we state up front |
 | 12 Test · Roadmap | Now, Next and Later, plus open questions for TBO |
 | 13 Strategy · SWOT | Strengths, Weaknesses, Opportunities and Threats (6 each, every number from the main README), plus 4 strategies that follow from them (TOWS) |
 

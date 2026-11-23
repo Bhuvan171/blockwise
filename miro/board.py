@@ -166,8 +166,8 @@ def start_here(b, x, y):
         ("blue", "**3 · What Blockwise does**\nForecasts a range of demand, simulates 150 to 200 futures, then "
                  "picks the mix of hard blocks, allotments and buying as needed that earns the most while limiting "
                  "the worst 5% of outcomes."),
-        ("blue", "**4 · Proof on real data**\n- 88.8% of perfect-hindsight profit vs 80.2% for the best simple "
-                 "rule (2 hotels, 15 rounds)\n- €72k more profit, €114k less unsold prepaid stock\n"
+        ("blue", "**4 · Proof on real data**\n- 92.7% of perfect-hindsight profit vs 89.8% for the best fixed "
+                 "rule (2 hotels, 15 rounds)\n- Won 12 of 15 rounds, half the unsold prepaid cost\n"
                  "- 17% smaller COVID loss in the Singapore replay"),
         ("green", "**5 · What's next**\nRound 2: plug in TBO's search logs and sold-out flags, re-plan weekly as "
                   "bookings arrive, and add flight deposit and name-change terms."),
@@ -497,7 +497,7 @@ def product_map(b, x, y):
                         "Stop the run if a benchmark fails"]),
         ("Outputs", ["Buy list with a reason per line", "Allotment calendar", "Budget frontier",
                      "Quote desk", "Exposure by region"]),
-        ("Proof", ["Real backtest: 88.8% of hindsight", "Singapore COVID replay", "Robustness: best bad case 6 of 6",
+        ("Proof", ["Real backtest: 92.7% of hindsight", "Singapore COVID replay", "Robustness: best bad case 6 of 6",
                    "Forecaster benchmark"]),
     ], n_right=4, leaf_w=290)
     return b.end()
@@ -559,24 +559,23 @@ def storyboard(b, x, y):
 
 def evidence(b, x, y):
     cx, cy = b.begin("11  Test · What the prototype proved", x, y)
-    cols = [("c1", 440, "What we tested"), ("c2", 150, "Blockwise"), ("c3", 210, "Best simple rule"),
+    cols = [("c1", 440, "What we tested"), ("c2", 150, "Blockwise"), ("c3", 210, "Best fixed rule"),
             ("c4", 120, "Data")]
     rows = [
-        ["Profit, share of perfect hindsight (2 hotels, 15 rounds)", "88.8%", "80.2%", "Real"],
-        ["Rounds won against the best rule", "13 of 15", "2 of 15", "Real"],
-        ["Unsold prepaid cost", "€45k", "€159k", "Real"],
+        ["Profit, share of perfect hindsight (2 hotels, 15 rounds)", "92.7%", "89.8%", "Real"],
+        ["Rounds won against the best fixed rule", "12 of 15", "—", "Real"],
+        ["Unsold prepaid cost (vs the rule set in advance)", "€20k", "€41k", "Real"],
         ["Rounds that lost money", "0", "0", "Real"],
         ["Singapore COVID loss, 2020 to 2021", "−S$2.56M", "−S$3.07M", "Real"],
         ["Singapore total profit, share of hindsight", "79.3%", "80.1%", "Real"],
         ["Best bad case in untested worlds", "6 of 6", "0 of 6", "Synthetic"],
         ["Forecast error 8 to 12 weeks out (WAPE)", "21.8%", "50% (last year)", "Real"],
-        ["Profit in euros, same 15 rounds", "€746,835", "€674,542", "Real"],
-        ["Share of B2B demand served", "97.1%", "98.8%", "Real"],
+        ["Profit in euros, same 15 rounds", "€750,527", "€727,342", "Real"],
+        ["Ahead in re-runs that change one assumption", "10 of 10", "—", "Real"],
     ]
-    fills = {"r%d" % (i + 2): {"c2": "green"} for i in (0, 1, 2, 4, 6, 7, 8)}
+    fills = {"r%d" % (i + 2): {"c2": "green"} for i in (0, 1, 2, 4, 6, 7, 8, 9)}
     t = b.table(cx, cy, cols, rows, fills)
-    b.text(cx, cy + t["h"] + 14, "Trade-off vs the best rule: 1.7 points less demand served, €114k less unsold stock, "
-                                 "€72k more profit.", size="small",
+    b.text(cx, cy + t["h"] + 14, "Prepaid capped at 50% of last year's volume. Best fixed rule chosen with hindsight.", size="small",
            wrap=sum(c[1] for c in cols))
     ly = cy + t["h"] + 62
     b.text(cx, ly, "**Limits we state up front**", size="body")
@@ -621,8 +620,8 @@ SWOT = [
     # (title, subtitle, sticky colour, notes). Every number is from the main README.
     ("Strengths", "what Blockwise does well", "blue", [
         "Plans all 3 contract types together: hard block, allotment and buy as needed",
-        "Real bookings: 88.8% of perfect-hindsight profit vs 80.2% for the best simple rule",
-        "Won 13 of 15 real planning rounds, and cut unsold prepaid cost from €159k to €45k",
+        "Real bookings: 92.7% of perfect-hindsight profit vs 89.8% for the best fixed rule, even one picked with hindsight",
+        "Won 12 of 15 real planning rounds, and halved unsold prepaid cost (€20k vs €41k)",
         "Plans for the bad case (worst 5% of futures), with a risk dial from Max profit to Careful",
         "Circuit breaker: 17% smaller COVID loss than the best rule in the Singapore replay",
         "Explains every buy with a reason, and states its limits up front",
@@ -645,7 +644,7 @@ SWOT = [
     ]),
     ("Threats", "outside risks to the plan", "pink", [
         "Shocks break forecasts: pandemics, airline collapses, regional disruptions, currency slides",
-        "Real contract rates may differ from our assumptions (block −30%, allotment −20%); with smaller discounts Blockwise still leads, 85.9% vs 74.2%",
+        "Real contract rates may differ from our assumptions (block −30%, allotment −20%); with smaller discounts Blockwise still leads, 90.3% vs 87.6%",
         "One shock can hit a whole region at once, so prepaid money must not pile up in one place",
         "After COVID the forecast kept missing by over 2×: the Singapore breaker stayed on for 33 months",
         "Turned-away demand isn't recorded on sold-out nights, so peaks look smaller than they were",
